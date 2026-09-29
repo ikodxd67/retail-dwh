@@ -43,6 +43,7 @@ class Settings:
     pushgateway: str
     trino_host: str
     trino_port: int
+    spark_connect: str
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -66,6 +67,7 @@ class Settings:
             pushgateway=get("PUSHGATEWAY", ""),
             trino_host=get("TRINO_HOST", "localhost"),
             trino_port=int(get("TRINO_PORT", "8085")),
+            spark_connect=get("SPARK_CONNECT", "sc://localhost:15002"),
         )
 
 

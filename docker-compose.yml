@@ -38,6 +38,7 @@ x-airflow: &airflow
     RETAIL_PUSHGATEWAY: pushgateway:9091
     RETAIL_TRINO_HOST: trino
     RETAIL_TRINO_PORT: "8080"
+    RETAIL_SPARK_CONNECT: sc://spark:15002
   volumes:
     - ./dags:/opt/airflow/dags:ro
     - ./src:/opt/retail/src:ro
@@ -228,7 +229,132 @@ services:
     ports:
       - "3000:3000"
 
+  # --------------------------------------------------------------- озеро
+  kafka:
+    image: apache/kafka:4.2.2
+    profiles: [lake]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # два адреса: kafka:19092 для контейнеров, localhost:9092 для хоста
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 72
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  # Генератор кликстрима сайта: пишет события в топик web.events
+  event-producer:
+    build:
+      context: .
+      dockerfile: docker/producer/Dockerfile
+    profiles: [lake]
+    environment:
+      PYTHONPATH: /opt/retail/src
+      RETAIL_KAFKA_BOOTSTRAP: kafka:19092
+      EVENTS_PER_SECOND: "15"
+    volumes:
+      - ./src:/opt/retail/src:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # Spark Connect: Airflow отправляет планы запросов по gRPC и не держит у
+  # себя ни JVM, ни Spark. Сервер работает в local-режиме — для стенда хватает.
+  spark:
+    image: bitnamilegacy/spark:3.5.6
+    profiles: [lake]
+    user: root
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      HADOOP_USER_NAME: spark
+    command:
+      - /opt/bitnami/spark/sbin/start-connect-server.sh
+      - --master
+      - local[4]
+      - --driver-memory
+      - 1200m
+      - --packages
+      - org.apache.spark:spark-connect_2.12:3.5.6,io.delta:delta-spark_2.12:3.3.2,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,org.apache.hadoop:hadoop-aws:3.3.4
+      - --conf
+      - spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+      - --conf
+      - spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      - --conf
+      - spark.hadoop.fs.s3a.endpoint=http://minio:9000
+      - --conf
+      - spark.hadoop.fs.s3a.access.key=minio
+      - --conf
+      - spark.hadoop.fs.s3a.secret.key=minio12345
+      - --conf
+      - spark.hadoop.fs.s3a.path.style.access=true
+      - --conf
+      - spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+      - --conf
+      - spark.sql.shuffle.partitions=8
+      - --conf
+      - spark.jars.ivy=/opt/ivy
+    ports:
+      - "15002:15002"   # Spark Connect
+      - "4040:4040"     # Spark UI
+    volumes:
+      - ivy-cache:/opt/ivy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/15002'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    profiles: [lake]
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"
+      - "9009:9000"   # 9000 уже занят MinIO
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./docker/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # 127.0.0.1, а не localhost: ClickHouse в этом образе не слушает IPv6
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Trino: один SQL поверх Oracle, PostgreSQL, ClickHouse и Delta в MinIO
+  trino:
+    image: trinodb/trino:483
+    profiles: [lake]
+    ports:
+      - "8085:8080"
+    volumes:
+      - ./docker/trino/catalog:/etc/trino/catalog:ro
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx1g
+
 volumes:
+  kafka-data:
+  ivy-cache:
+  clickhouse-data:
   prometheus-data:
   oracle-data:
   crm-data:

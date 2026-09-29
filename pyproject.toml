@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka>=2.5"]
+lake = ["pyspark[connect]==3.5.6", "setuptools", "trino>=0.330"]
 mcp = ["mcp>=1.2", "trino>=0.330"]
 dev = [
     "pytest>=8.2",
@@ -41,7 +42,7 @@ retail_dwh = ["py.typed"]
 [tool.ruff]
 line-length = 110
 target-version = "py311"
-src = ["src", "tests", "dags"]
+src = ["src", "tests", "dags", "spark/jobs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
