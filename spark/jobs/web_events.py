@@ -4,7 +4,7 @@
 передаёт удалённую (Spark Connect), а `python web_events.py stream` на
 сервере Spark запускает тот же код как постоянный поток.
 
-Слои в MinIO (бакет lake):
+Слои в S3 (бакет lake):
   delta/web/events             bronze: разобранные события, без дублей
   delta/web/events_quarantine  битые сообщения как есть, для разбора
   delta/web/sessions           silver: одна строка на сессию

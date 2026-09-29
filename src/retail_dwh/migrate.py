@@ -1,4 +1,4 @@
-"""Миграции DWH: sql/dwh/NNN_*.sql по порядку, каждая один раз.
+"""Миграции DWH: sql/dwh/NNN_*.sql по порядку, каждая один раз, плюс бакеты S3.
 
 DDL слоя raw_vault не лежит файлом — он генерируется из models/vault.yml и
 применяется на каждом запуске (всё через IF NOT EXISTS). Новые хабы и
@@ -42,4 +42,7 @@ def migrate() -> list[str]:
         if not vault_done:
             conn.execute(ddl(load_model()))
         conn.commit()
+    created = connections.ensure_buckets()
+    if created:
+        log.info("созданы бакеты: %s", created)
     return applied_now

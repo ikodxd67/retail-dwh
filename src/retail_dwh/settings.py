@@ -63,8 +63,8 @@ class Settings:
                 "DWH_READONLY_DSN", "postgresql://monitoring_ro:monitoring_ro@localhost:5432/dwh"
             ),
             s3_endpoint=get("S3_ENDPOINT", "http://localhost:9000"),
-            s3_access_key=get("S3_ACCESS_KEY", "minio"),
-            s3_secret_key=get("S3_SECRET_KEY", "minio12345"),
+            s3_access_key=get("S3_ACCESS_KEY", "retail"),
+            s3_secret_key=get("S3_SECRET_KEY", "retail12345"),
             clickhouse_host=get("CLICKHOUSE_HOST", "localhost"),
             clickhouse_port=int(get("CLICKHOUSE_PORT", "8123")),
             kafka_bootstrap=get("KAFKA_BOOTSTRAP", "localhost:9092"),

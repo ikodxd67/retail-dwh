@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "retail",
+      "credentials": [{"accessKey": "retail", "secretKey": "retail12345"}],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

@@ -180,6 +180,21 @@ def _run_files(pipeline: Pipeline, source: FilesSource, result: RunResult) -> No
             )
         }
         columns = stg_columns(conn, pipeline.target)
+
+    def archive(key: str) -> None:
+        if source.archive_bucket:
+            s3.copy_object(
+                Bucket=source.archive_bucket, Key=key, CopySource={"Bucket": source.bucket, "Key": key}
+            )
+            s3.delete_object(Bucket=source.bucket, Key=key)
+
+    # тот же файл с тем же содержимым прислали повторно: грузить нечего,
+    # но и оставлять его в landing нельзя — убираем в архив
+    for o in objects:
+        if (o["Key"], o["ETag"].strip('"')) in done:
+            log.info("%s: %s уже загружен, переношу в архив", pipeline.name, o["Key"])
+            archive(o["Key"])
+
     # имена файлов содержат дату, поэтому сортировка по ключу = хронология
     todo = sorted(
         (o for o in objects if (o["Key"], o["ETag"].strip('"')) not in done),
@@ -214,11 +229,7 @@ def _run_files(pipeline: Pipeline, source: FilesSource, result: RunResult) -> No
             _fail_batch(pipeline, str(exc), source_object=key)
             result.skipped_files.append(key)
             continue
-        if source.archive_bucket:
-            s3.copy_object(
-                Bucket=source.archive_bucket, Key=key, CopySource={"Bucket": source.bucket, "Key": key}
-            )
-            s3.delete_object(Bucket=source.bucket, Key=key)
+        archive(key)
         result.batches.append(batch_id)
         result.rows += rows
         log.info("%s: %s -> партия %s, %s строк", pipeline.name, key, batch_id, rows)

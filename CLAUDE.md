@@ -2,7 +2,7 @@
 
 Хранилище сети магазинов: Oracle ERP, CRM на PostgreSQL, файлы поставщиков,
 API Нацбанка и Kafka сводятся в Data Vault (PostgreSQL), из него строится звезда,
-продажи публикуются в ClickHouse, кликстрим живёт в Delta на MinIO, всё видно
+продажи публикуются в ClickHouse, кликстрим живёт в Delta в S3 (SeaweedFS), всё видно
 через Trino. Оркестрация — Airflow 3.
 
 ## Где что
@@ -22,7 +22,7 @@ API Нацбанка и Kafka сводятся в Data Vault (PostgreSQL), из 
 ## Команды
 
 ```bash
-docker compose up -d                        # источники, DWH, MinIO
+docker compose up -d                        # источники, DWH, S3
 retail-dwh migrate                          # миграции
 retail-dwh ingest erp_orders                # один источник -> stg (+ проверки)
 retail-dwh vault                            # stg -> raw_vault

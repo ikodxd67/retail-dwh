@@ -55,9 +55,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Start sources and DWH
-        run: docker compose up -d --wait oracle crm-db dwh-db minio
-      - name: Buckets
-        run: docker compose up minio-init
+        run: docker compose up -d --wait oracle crm-db dwh-db s3
       - name: Install
         run: pip install -e ".[dev]"
       - name: Migrate and generate sources

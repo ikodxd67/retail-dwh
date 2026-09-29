@@ -5,7 +5,7 @@ flowchart LR
     subgraph Источники
         ORA[(Oracle ERP<br/>заказы, магазины)]
         CRM[(PostgreSQL CRM<br/>клиенты)]
-        S3L[/MinIO landing<br/>XML, CSV.gz, JSON/]
+        S3L[/S3 landing<br/>XML, CSV.gz, JSON/]
         NBK{{API НБРК<br/>курсы, XML}}
         KAF>Kafka<br/>web.events]
     end
@@ -17,7 +17,7 @@ flowchart LR
         META[meta<br/>партии, водяные знаки, DQ]
     end
 
-    subgraph Озеро [MinIO lake, Delta]
+    subgraph Озеро [S3 lake, Delta]
         BR[web/events<br/>bronze]
         SI[web/sessions<br/>silver]
     end
@@ -40,12 +40,12 @@ flowchart LR
 
 | Слой | Где | Что | Как обновляется |
 |---|---|---|---|
-| landing | MinIO `landing/` | файлы как их прислали | внешние системы; после загрузки файл уходит в `archive/` |
+| landing | S3 `landing/` | файлы как их прислали | внешние системы; после загрузки файл уходит в `archive/` |
 | stg | PostgreSQL `stg.*` | строки источника, типизированные, с номером партии | append; раз в сутки удаляются партии старше 7 дней, уже разложенные по vault |
 | raw_vault | PostgreSQL `raw_vault.*` | Data Vault 2.0: хабы, линки, сателлиты, справочники | только вставка; новая версия сателлита — если изменился hashdiff |
 | marts | PostgreSQL `marts.*` | звезда: `fact_sales`, `fact_stock_daily`, измерения | инкрементально по `load_dts`, одна транзакция на сборку |
 | ClickHouse | `retail.*` | плоская копия продаж, воронка сайта | помесячно, `REPLACE PARTITION` |
-| lake | MinIO `lake/delta/web/*` | кликстрим: bronze и silver | Spark, каждые 10 минут |
+| lake | S3 `lake/delta/web/*` | кликстрим: bronze и silver | Spark, каждые 10 минут |
 
 ## Почему Data Vault между stg и звездой
 

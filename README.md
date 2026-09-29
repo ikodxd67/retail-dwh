@@ -13,7 +13,7 @@ Oracle ERP ─┐
 CRM (PG)   ─┤                     ┌─> звезда (PG) ──> ClickHouse ──┐
 XML/CSV/JSON┼─> stg ─> Data Vault ┤                                ├─> Trino ─> аналитики, MCP
 API НБРК   ─┘                     └─> проверки качества            │
-Kafka ──> Spark (Connect) ──> Delta в MinIO ───────────────────────┘
+Kafka ──> Spark (Connect) ──> Delta в S3 ──────────────────────────┘
 ```
 
 Подробнее: [архитектура](docs/architecture.md) · [решения и компромиссы](docs/decisions.md) ·
@@ -23,7 +23,7 @@ Kafka ──> Spark (Connect) ──> Delta в MinIO ─────────
 
 | | |
 |---|---|
-| **Источники** | Oracle Free 23ai (ERP: заказы, строки, магазины), PostgreSQL (CRM с изменениями клиентов), файлы поставщика и склада в MinIO: каталог в **XML**, остатки в **CSV.gz** (разделитель `;`, запятая в дробях, BOM), промо в **JSON**; настоящее **XML API Нацбанка РК**; поток событий сайта в **Kafka** |
+| **Источники** | Oracle Free 23ai (ERP: заказы, строки, магазины), PostgreSQL (CRM с изменениями клиентов), файлы поставщика и склада в S3: каталог в **XML**, остатки в **CSV.gz** (разделитель `;`, запятая в дробях, BOM), промо в **JSON**; настоящее **XML API Нацбанка РК**; поток событий сайта в **Kafka** |
 | **Загрузка** | Один источник описывается одним YAML (`pipelines/`), по нему фабрика строит DAG. Инкремент по водяному знаку с перекрытием, атомарные партии, карантин партий, не прошедших проверку, реестр файлов по ETag |
 | **DWH** | **Data Vault 2.0**: DDL и SQL загрузки генерируются из `models/vault.yml`. Витрины — **звезда** со **снежинкой** по товарам, **SCD2** по клиентам, секционированный факт, MERGE |
 | **SQL** | CTE, оконные функции (LAG, NTILE, накопительные суммы), LATERAL, MERGE, self-join, as-of соединения по интервалам. Аналитика в [`sql/analytics/`](sql/analytics), оптимизация с замерами в [`docs/performance.md`](docs/performance.md) |
@@ -58,7 +58,7 @@ python -m venv .venv && .venv/Scripts/activate      # Linux/macOS: source .venv/
 pip install -e ".[dev,lake,mcp]"
 cp .env.example .env
 
-docker compose up -d                                 # Oracle, CRM, DWH, MinIO
+docker compose up -d                                 # Oracle, CRM, DWH, S3
 retail-dwh migrate
 retail-dwh simulate                                  # история с 2025 года, несколько минут
 retail-dwh ingest && retail-dwh vault && retail-dwh marts && retail-dwh dq
@@ -102,5 +102,6 @@ docker/             образы и конфиги сервисов
 
 Здесь нет Greenplum и Vertica: вместо них PostgreSQL и ClickHouse, причины в
 [decisions.md](docs/decisions.md). Нет Kubernetes и Helm: стенд работает на одной
-машине в docker compose. Настоящий S3 заменён на MinIO с тем же API. Нет
+машине в docker compose. Вместо AWS S3 — SeaweedFS с тем же API (MinIO был, но в 2026 его образы
+перестали быть доступны — см. [decisions.md](docs/decisions.md)). Нет
 Alertmanager: алерты видны в Prometheus, но никуда не отправляются.

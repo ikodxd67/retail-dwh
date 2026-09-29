@@ -59,6 +59,19 @@ def s3():
     )
 
 
+BUCKETS = ("landing", "archive", "lake")
+
+
+def ensure_buckets() -> list[str]:
+    """Создать бакеты стенда, если их ещё нет. Повторный вызов ничего не делает."""
+    client = s3()
+    existing = {b["Name"] for b in client.list_buckets().get("Buckets", [])}
+    created = [b for b in BUCKETS if b not in existing]
+    for bucket in created:
+        client.create_bucket(Bucket=bucket)
+    return created
+
+
 def clickhouse():
     import clickhouse_connect
 

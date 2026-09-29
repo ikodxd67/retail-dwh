@@ -2,7 +2,7 @@
 -- в магазинах — RFM-сегмент, город последней офлайн-покупки, средний чек.
 --
 -- Один запрос через три системы:
---   lake.web.events   Delta в MinIO (кликстрим после Spark)
+--   lake.web.events   Delta в S3 (кликстрим после Spark)
 --   dwh.marts.*       PostgreSQL (звезда и RFM)
 --   erp.erp.stores    Oracle (справочник магазинов прямо из ERP)
 WITH visitors AS (

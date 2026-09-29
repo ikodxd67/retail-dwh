@@ -1,4 +1,4 @@
-"""Сквозные проверки на живом стенде: Oracle, CRM, DWH, MinIO.
+"""Сквозные проверки на живом стенде: Oracle, CRM, DWH, S3.
 
 Запуск: `pytest -m integration` при поднятом `docker compose up -d` и
 выполненных `retail-dwh migrate` и `retail-dwh simulate`. Тесты добавляют
