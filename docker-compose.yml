@@ -9,11 +9,11 @@
 # Профили можно складывать: --profile airflow --profile lake.
 
 x-airflow: &airflow
+  image: retail-dwh/airflow:local
   build:
     context: .
     dockerfile: docker/airflow/Dockerfile
   profiles: [airflow]
-  env_file: .env
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -28,6 +28,16 @@ x-airflow: &airflow
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
     PYTHONPATH: /opt/retail/src
     RETAIL_PROJECT_DIR: /opt/retail
+    # внутри сети compose сервисы видны по именам, а не через localhost
+    RETAIL_ORACLE_DSN: oracle:1521/FREEPDB1
+    RETAIL_CRM_DSN: postgresql://crm:crm@crm-db:5432/crm
+    RETAIL_DWH_DSN: postgresql://dwh:dwh@dwh-db:5432/dwh
+    RETAIL_S3_ENDPOINT: http://minio:9000
+    RETAIL_CLICKHOUSE_HOST: clickhouse
+    RETAIL_KAFKA_BOOTSTRAP: kafka:19092
+    RETAIL_PUSHGATEWAY: pushgateway:9091
+    RETAIL_TRINO_HOST: trino
+    RETAIL_TRINO_PORT: "8080"
   volumes:
     - ./dags:/opt/airflow/dags:ro
     - ./src:/opt/retail/src:ro
@@ -140,7 +150,86 @@ services:
       "
     restart: "no"
 
+  # ---------------------------------------------------------------- Airflow
+  airflow-init:
+    <<: *airflow
+    command: db migrate
+    restart: "no"
+
+  airflow-apiserver:
+    <<: *airflow
+    command: api-server
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # в Airflow 3 разбор DAG-файлов — отдельный процесс
+  airflow-dag-processor:
+    <<: *airflow
+    command: dag-processor
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ------------------------------------------------------------- мониторинг
+  # Airflow шлёт метрики по StatsD (UDP), Prometheus умеет только забирать
+  # их по HTTP — statsd-exporter переводит одно в другое.
+  statsd-exporter:
+    image: prom/statsd-exporter:v0.31.0
+    profiles: [monitoring, airflow]
+    command: --statsd.mapping-config=/etc/statsd/mapping.yml
+    volumes:
+      - ./docker/monitoring/statsd_mapping.yml:/etc/statsd/mapping.yml:ro
+    ports:
+      - "9102:9102"
+
+  # сюда задачи загрузки отправляют свои метрики в конце работы
+  pushgateway:
+    image: prom/pushgateway:v1.11.3
+    profiles: [monitoring, airflow]
+    ports:
+      - "9091:9091"
+
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    profiles: [monitoring]
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:13.0-slim
+    profiles: [monitoring]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
 volumes:
+  prometheus-data:
   oracle-data:
   crm-data:
   dwh-data:

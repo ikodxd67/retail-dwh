@@ -1,0 +1,18 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+  - name: DWH
+    uid: dwh
+    type: grafana-postgresql-datasource
+    url: dwh-db:5432
+    user: monitoring_ro
+    secureJsonData:
+      password: monitoring_ro
+    jsonData:
+      database: dwh
+      sslmode: disable
+      postgresVersion: 1600

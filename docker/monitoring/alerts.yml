@@ -1,0 +1,67 @@
+# Алерты по данным, а не только по инфраструктуре: «DAG зелёный, а
+# данных нет» — самая частая авария в DWH, и её видно только так.
+groups:
+  - name: data-freshness
+    rules:
+      - alert: IngestStaleFrequent
+        # частые источники (раз в 15-60 минут) молчат больше 3 часов
+        expr: time() - retail_ingest_last_success_timestamp_seconds{pipeline=~"erp_orders|erp_order_lines|crm_customers|catalog_products"} > 3 * 3600
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.pipeline }}: нет успешной загрузки {{ $value | humanizeDuration }}"
+          runbook: docs/runbook.md#источник-не-грузится
+
+      - alert: IngestStaleDaily
+        expr: time() - retail_ingest_last_success_timestamp_seconds{pipeline=~"erp_stores|stock_snapshots|promo_items|fx_rates"} > 30 * 3600
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.pipeline }}: больше суток без загрузки"
+          runbook: docs/runbook.md#источник-не-грузится
+
+      - alert: MartsStale
+        expr: time() - retail_build_last_success_timestamp_seconds{step="marts"} > 2 * 3600
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "Витрины не пересобирались {{ $value | humanizeDuration }}"
+          runbook: docs/runbook.md#витрины-устарели
+
+  - name: data-quality
+    rules:
+      - alert: IngestFailed
+        expr: retail_ingest_success == 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.pipeline }}: последний запуск упал"
+          runbook: docs/runbook.md#источник-не-грузится
+
+      - alert: DataQualityFailed
+        expr: retail_dq_check_passed{severity="fail"} == 0
+        labels: {severity: critical}
+        annotations:
+          summary: "DQ {{ $labels.table }}.{{ $labels.check }} провалена ({{ $labels.layer }})"
+          runbook: docs/runbook.md#провалена-проверка-качества
+
+      - alert: DataQualityWarning
+        expr: retail_dq_check_passed{severity="warn"} == 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "DQ-предупреждение {{ $labels.table }}.{{ $labels.check }}: {{ $value }}"
+
+  - name: airflow
+    rules:
+      - alert: AirflowTaskFailures
+        expr: sum by (dag_id, task_id) (increase(airflow_task_finish_total{state="failed"}[1h])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.dag_id }}.{{ $labels.task_id }}: падения за последний час"
+
+      - alert: AirflowDagImportErrors
+        expr: airflow_dag_import_errors > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Airflow не может разобрать DAG-файлы: {{ $value }}"

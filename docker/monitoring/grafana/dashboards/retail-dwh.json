@@ -1,0 +1,384 @@
+{
+  "uid": "retail-dwh",
+  "title": "retail-dwh: пайплайны и данные",
+  "timezone": "Asia/Almaty",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Свежесть и загрузки",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 100,
+      "collapsed": false
+    },
+    {
+      "id": 1,
+      "title": "Сколько прошло с последней успешной загрузки",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() - retail_ingest_last_success_timestamp_seconds",
+          "legendFormat": "{{pipeline}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7200
+              },
+              {
+                "color": "red",
+                "value": 10800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Строк за последний запуск",
+      "type": "bargauge",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "retail_ingest_rows",
+          "legendFormat": "{{pipeline}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Партии за 24 часа",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dwh"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dwh"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT batch_id, pipeline, status, rows_loaded,\n  round(extract(epoch FROM finished_at - started_at)::numeric, 1) AS seconds,\n  source_object, watermark_to, vault_loaded_at IS NOT NULL AS in_vault, error\nFROM meta.batches WHERE started_at > now() - interval '24 hours'\nORDER BY batch_id DESC LIMIT 200"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Качество данных",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "id": 101,
+      "collapsed": false
+    },
+    {
+      "id": 4,
+      "title": "Проверки, которые сейчас не проходят",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "retail_dq_check_passed == 0",
+          "legendFormat": "",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "Value": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "История проверок (нарушения)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dwh"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dwh"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "time_series",
+          "rawSql": "SELECT checked_at AS time, table_name || '.' || check_name AS metric, observed AS value\nFROM meta.dq_results\nWHERE $__timeFilter(checked_at) AND observed > 0\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Airflow",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "id": 102,
+      "collapsed": false
+    },
+    {
+      "id": 6,
+      "title": "Падения задач за час",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (dag_id) (increase(airflow_task_finish_total{state=\"failed\"}[1h]))",
+          "legendFormat": "{{dag_id}}"
+        }
+      ],
+      "interval": "1m"
+    },
+    {
+      "id": 7,
+      "title": "Длительность DAG-ов",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "airflow_dagrun_duration_seconds{quantile=\"0.5\"}",
+          "legendFormat": "{{dag_id}} ({{status}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "interval": "1m"
+    },
+    {
+      "type": "row",
+      "title": "Бизнес: то, ради чего всё это",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      },
+      "id": 103,
+      "collapsed": false
+    },
+    {
+      "id": 8,
+      "title": "Выручка и маржа по дням за 90 дней, ₸",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 16,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dwh"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dwh"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "time_series",
+          "rawSql": "SELECT d.date AS time, sum(f.net_amount) AS \"выручка\", sum(f.margin_amount) AS \"маржа\"\nFROM marts.fact_sales f JOIN marts.dim_date d USING (date_key)\nWHERE $__timeFilter(f.order_ts)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: ₸"
+        },
+        "overrides": []
+      },
+      "timeFrom": "90d"
+    },
+    {
+      "id": 9,
+      "title": "Доля возвратов за 30 дней",
+      "type": "stat",
+      "gridPos": {
+        "x": 16,
+        "y": 33,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dwh"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dwh"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(DISTINCT order_no) FILTER (WHERE order_status = 'RETURNED')\n       / nullif(count(DISTINCT order_no), 0), 2) AS \"возвраты, %\"\nFROM marts.fact_sales WHERE order_ts > now() - interval '30 days'"
+        }
+      ]
+    }
+  ],
+  "tags": [
+    "retail-dwh"
+  ]
+}

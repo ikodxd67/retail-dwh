@@ -1,0 +1,23 @@
+# Перевод имён StatsD от Airflow в метрики Prometheus с метками.
+# Без маппинга dag_id и task_id оказались бы вшиты в имя метрики.
+mappings:
+  - match: "airflow.dagrun.duration.*.*"
+    name: airflow_dagrun_duration_seconds
+    labels:
+      status: "$1"
+      dag_id: "$2"
+  - match: "airflow.ti.finish.*.*.*"
+    name: airflow_task_finish_total
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+      state: "$3"
+  - match: "airflow.dag.*.*.duration"
+    name: airflow_task_duration_seconds
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+  - match: "airflow.dag_processing.import_errors"
+    name: airflow_dag_import_errors
+  - match: "airflow.scheduler_heartbeat"
+    name: airflow_scheduler_heartbeat_total
