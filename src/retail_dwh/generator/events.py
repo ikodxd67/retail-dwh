@@ -64,6 +64,13 @@ def _session(world: World, rnd: random.Random, now: datetime) -> list[dict]:
             emit("checkout_start")
             if rnd.random() < 0.7:
                 emit("purchase", order_value=sum(world.retail_price(p, now.date()) for p in cart))
+    # паузы между событиями уводят длинную сессию в будущее — сдвигаем её
+    # назад так, чтобы последнее событие случилось не позже «сейчас»
+    overshoot = ts - now
+    for event in events:
+        event["event_ts"] = (datetime.fromisoformat(event["event_ts"]) - overshoot).isoformat(
+            timespec="milliseconds"
+        )
     return events
 
 

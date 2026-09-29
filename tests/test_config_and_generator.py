@@ -71,3 +71,18 @@ def test_dq_sql_rendering():
     assert "GROUP BY order_no, line_no HAVING count(*) > 1" in sql
     with pytest.raises(ValueError):
         check_sql(Check(check="not_null", columns=["x; DROP TABLE y"]), "t0")
+
+
+def test_web_sessions_never_in_future():
+    import random
+    from datetime import UTC
+
+    from retail_dwh.generator.events import _session
+
+    now = datetime.now(UTC)
+    world, rnd = World(42), random.Random(7)
+    for _ in range(200):
+        events = _session(world, rnd, now)
+        stamps = [datetime.fromisoformat(e["event_ts"]) for e in events]
+        assert max(stamps) <= now
+        assert stamps == sorted(stamps), "порядок событий в сессии сохраняется"
