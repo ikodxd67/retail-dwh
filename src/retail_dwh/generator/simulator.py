@@ -60,19 +60,13 @@ class Simulator:
             conn.execute((PROJECT_DIR / "sql/sources/crm.sql").read_text(encoding="utf-8"))
             existing = conn.execute("SELECT coalesce(max(customer_id), 0) FROM customers").fetchone()[0]
             # служебная отметка симулятора: до какого часа уже накатаны правки
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS simulator_state (key text PRIMARY KEY, value timestamp)"
-            )
-            row = conn.execute(
-                "SELECT value FROM simulator_state WHERE key = 'changes_until'"
-            ).fetchone()
+            conn.execute("CREATE TABLE IF NOT EXISTS simulator_state (key text PRIMARY KEY, value timestamp)")
+            row = conn.execute("SELECT value FROM simulator_state WHERE key = 'changes_until'").fetchone()
             changes_until = row[0] if row else None
             total = customers_created_by(now)
             new_rows = [customer_row(i) for i in range(existing + 1, total + 1)]
             cols = list(customer_row(1).keys())
-            with conn.cursor() as cur, cur.copy(
-                f"COPY customers ({', '.join(cols)}) FROM STDIN"
-            ) as copy:
+            with conn.cursor() as cur, cur.copy(f"COPY customers ({', '.join(cols)}) FROM STDIN") as copy:
                 for row in new_rows:
                     row["created_at"] = row["created_at"].replace(tzinfo=TZ)
                     row["updated_at"] = row["updated_at"].replace(tzinfo=TZ)
@@ -92,8 +86,7 @@ class Simulator:
                         }
                         sets = ", ".join(f"{k} = %({k})s" for k in patch)
                         conn.execute(
-                            f"UPDATE customers SET {sets} WHERE customer_id = %(id)s "
-                            "AND deleted_at IS NULL",
+                            f"UPDATE customers SET {sets} WHERE customer_id = %(id)s AND deleted_at IS NULL",
                             patch | {"id": customer_id},
                         )
                         changed += 1
@@ -156,9 +149,17 @@ class Simulator:
         cur.execute("SELECT store_id FROM stores")
         have = {r[0] for r in cur.fetchall()}
         rows = [
-            dict(store_id=s.store_id, store_code=s.store_code, name=s.name, city=s.city,
-                 format=s.format, area_sqm=s.area_sqm, opened_on=s.opened_on)
-            for s in self.world.stores if s.store_id not in have
+            dict(
+                store_id=s.store_id,
+                store_code=s.store_code,
+                name=s.name,
+                city=s.city,
+                format=s.format,
+                area_sqm=s.area_sqm,
+                opened_on=s.opened_on,
+            )
+            for s in self.world.stores
+            if s.store_id not in have
         ]
         if rows:
             cur.executemany(
@@ -187,8 +188,7 @@ class Simulator:
     def _apply_returns(self, cur, now: datetime) -> int:
         """Возвраты по свежим заказам, чьё время возврата уже наступило."""
         cur.execute(
-            "SELECT order_id, order_no, order_ts FROM orders "
-            "WHERE status = 'PAID' AND order_ts > :since",
+            "SELECT order_id, order_no, order_ts FROM orders WHERE status = 'PAID' AND order_ts > :since",
             since=now - timedelta(days=15),
         )
         due = []

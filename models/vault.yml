@@ -1,0 +1,256 @@
+# Модель слоя raw_vault (Data Vault 2.0).
+#
+# Отсюда генерируются и DDL таблиц, и SQL загрузки: `retail-dwh vault ddl`.
+# Новый источник подключается блоком в `sources` — писать INSERT-ы руками не нужно.
+#
+# Соглашения:
+#   hk_*       хеш-ключ, md5 от бизнес-ключа в верхнем регистре без пробелов по краям
+#   hashdiff   md5 от атрибутов сателлита — по нему видно, изменилась ли запись
+#   load_dts   когда запись попала в хранилище
+#   applied_ts когда изменение произошло в источнике (updated_at, дата снимка)
+#   '-1'       бизнес-ключ «неизвестного» (анонимная покупка без клиента)
+
+hubs:
+  customer:  { business_key: customer_id }
+  store:     { business_key: store_code }
+  product:   { business_key: sku }
+  order:     { business_key: order_no }
+  promo:     { business_key: campaign_id }
+
+links:
+  order_customer_store:
+    hubs: [order, customer, store]
+  order_line:
+    hubs: [order, product]
+    dependent_key: line_no          # номер строки — часть ключа линка
+  promo_product:
+    hubs: [promo, product]
+
+satellites:
+  sat_customer_crm:
+    parent: customer
+    columns:
+      city: text
+      loyalty_tier: text
+      marketing_consent: boolean
+      gender: text
+      birth_year: integer
+      email_domain: text
+      created_at: timestamptz
+      deleted_at: timestamptz
+  # персональные данные отдельно: другой доступ, другое время хранения,
+  # а удаление по запросу клиента не трогает остальную историю
+  sat_customer_pii:
+    parent: customer
+    pii: true
+    columns:
+      email: text
+      phone: text
+      first_name: text
+      last_name: text
+      birth_date: date
+  sat_store_erp:
+    parent: store
+    columns:
+      name: text
+      city: text
+      format: text
+      area_sqm: numeric(7,1)
+      opened_on: date
+      closed_on: date
+  sat_product_catalog:
+    parent: product
+    columns:
+      name: text
+      brand: text
+      group_name: text
+      category_name: text
+      subcategory_name: text
+      unit: text
+      status: text
+      retail_price: numeric(12,2)
+  # закупочная цена меняется чаще описания товара — отдельный сателлит,
+  # чтобы не плодить копии всего описания при каждой смене цены
+  sat_product_supplier:
+    parent: product
+    columns:
+      supplier_code: text
+      purchase_price: numeric(14,2)
+      purchase_currency: text
+  sat_order_erp:
+    parent: order
+    columns:
+      order_ts: timestamptz
+      channel: text
+      status: text
+      payment_type: text
+  sat_order_line_erp:
+    parent: order_line
+    columns:
+      qty: numeric(10,3)
+      unit_price: numeric(12,2)
+      discount_amt: numeric(12,2)
+  sat_promo:
+    parent: promo
+    columns:
+      title: text
+      channels: text
+      valid_from: date
+      valid_to: date
+  sat_promo_product:
+    parent: promo_product
+    columns:
+      mechanics: text
+      discount_pct: numeric(5,2)
+
+# неисторизуемый линк: остатки — это факт на дату, они не «меняются»
+non_historized_links:
+  nhl_stock_snapshot:
+    hubs: [store, product]
+    dependent_key: snapshot_date
+    columns:
+      snapshot_date: date
+      qty_on_hand: numeric(12,3)
+      stock_cost: numeric(14,2)
+
+# как раскладывать каждую stg-таблицу по объектам vault
+sources:
+  stg.crm_customers:
+    record_source: crm.customers
+    applied_ts: updated_at
+    keys:
+      customer: customer_id::text
+    satellites:
+      sat_customer_crm:
+        city: initcap(trim(city))
+        loyalty_tier: lower(loyalty_tier)
+        marketing_consent: marketing_consent
+        gender: gender
+        birth_year: extract(year from birth_date)::int
+        email_domain: lower(split_part(email, '@', 2))
+        created_at: created_at
+        deleted_at: deleted_at
+      sat_customer_pii:
+        email: lower(trim(email))
+        # телефон приводим к виду 7XXXXXXXXXX: из CRM приходят «+7 701 ...», «8701...»
+        phone: >-
+          nullif(regexp_replace(regexp_replace(phone, '\D', '', 'g'), '^8(\d{10})$', '7\1'), '')
+        first_name: first_name
+        last_name: last_name
+        birth_date: birth_date
+
+  stg.erp_stores:
+    record_source: erp.stores
+    applied_ts: updated_at
+    keys:
+      store: store_code
+    satellites:
+      sat_store_erp:
+        name: name
+        city: city
+        format: format
+        area_sqm: area_sqm
+        opened_on: opened_on
+        closed_on: closed_on
+
+  stg.erp_orders:
+    record_source: erp.orders
+    applied_ts: updated_at
+    keys:
+      order: order_no
+      customer: coalesce(customer_id::text, '-1')
+      store: store_code
+    links: [order_customer_store]
+    satellites:
+      sat_order_erp:
+        order_ts: order_ts
+        channel: channel
+        status: status
+        payment_type: payment_type
+
+  stg.erp_order_lines:
+    record_source: erp.order_lines
+    applied_ts: updated_at
+    keys:
+      order: order_no
+      product: sku
+    dependent_keys:
+      line_no: line_no::text
+    links: [order_line]
+    satellites:
+      sat_order_line_erp:
+        qty: qty
+        unit_price: unit_price
+        discount_amt: discount_amt
+
+  stg.catalog_products:
+    record_source: landing.catalog
+    applied_ts: snapshot_date::timestamptz
+    keys:
+      product: sku
+    satellites:
+      sat_product_catalog:
+        name: name
+        brand: brand
+        group_name: group_name
+        category_name: category_name
+        subcategory_name: subcategory_name
+        unit: unit
+        status: status
+        retail_price: retail_price
+      sat_product_supplier:
+        supplier_code: supplier_code
+        purchase_price: purchase_price
+        purchase_currency: purchase_currency
+
+  stg.promo_items:
+    record_source: landing.promo
+    applied_ts: valid_from::timestamptz
+    keys:
+      promo: campaign_id
+      product: sku
+    links: [promo_product]
+    satellites:
+      sat_promo:
+        title: title
+        channels: array_to_string(channels, ',')
+        valid_from: valid_from
+        valid_to: valid_to
+      sat_promo_product:
+        mechanics: mechanics
+        discount_pct: discount_pct
+
+  stg.stock_snapshots:
+    record_source: landing.stock
+    applied_ts: snapshot_date::timestamptz
+    keys:
+      store: store_code
+      product: sku
+    dependent_keys:
+      snapshot_date: snapshot_date::text
+    non_historized_links:
+      nhl_stock_snapshot:
+        snapshot_date: snapshot_date
+        qty_on_hand: qty_on_hand
+        stock_cost: stock_cost
+
+# справочники (reference tables): у них нет хабов, это просто словари,
+# которые обновляются на месте по ключу
+references:
+  stg.fx_rates:
+    table: ref_fx_rate
+    record_source: api.nationalbank.kz
+    key: [rate_date, currency]
+    columns:
+      rate_date: date
+      currency: text
+      quant: integer
+      rate: numeric(14,4)
+      # курс НБРК дан за quant единиц (у воны — за 100)
+      rate_per_unit: numeric(18,8)
+    mapping:
+      rate_date: rate_date
+      currency: upper(currency)
+      quant: quant
+      rate: rate
+      rate_per_unit: rate / nullif(quant, 0)

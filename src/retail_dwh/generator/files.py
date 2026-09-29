@@ -48,8 +48,7 @@ def catalog_xml(world: World, day: date) -> bytes:
             status = "discontinued"
         rnd = stable_rand(world.seed, "ean", p.sku)
         eans = "".join(
-            f"<ean>{rnd.randint(4600000000000, 4899999999999)}</ean>"
-            for _ in range(rnd.choice([1, 1, 1, 2]))
+            f"<ean>{rnd.randint(4600000000000, 4899999999999)}</ean>" for _ in range(rnd.choice([1, 1, 1, 2]))
         )
         out.write(
             f'  <product sku="{p.sku}" status="{status}">'
@@ -85,13 +84,15 @@ def stock_csv(world: World, day: date) -> bytes:
             if p.unit == "шт":
                 qty = float(round(qty))
             cost = qty * world.retail_price(p, day) * p.purchase_ratio
-            writer.writerow([
-                f"{day:%d.%m.%Y}",
-                store.store_code,
-                p.sku,
-                f"{qty:.3f}".replace(".", ","),
-                f"{cost:.2f}".replace(".", ","),
-            ])
+            writer.writerow(
+                [
+                    f"{day:%d.%m.%Y}",
+                    store.store_code,
+                    p.sku,
+                    f"{qty:.3f}".replace(".", ","),
+                    f"{cost:.2f}".replace(".", ","),
+                ]
+            )
     # BOM в начале файла — так сохраняет Excel, парсер обязан это пережить
     return gzip.compress(("﻿" + buf.getvalue()).encode("utf-8"))
 
@@ -105,8 +106,6 @@ def promo_json(world: World, monday: date) -> bytes:
             "channels": ["STORE", "WEB"],
             "period": {"from": monday.isoformat(), "to": (monday + timedelta(days=6)).isoformat()},
         },
-        "items": [
-            {"sku": sku, "mechanics": {"type": "percent", "value": pct}} for sku, pct in items
-        ],
+        "items": [{"sku": sku, "mechanics": {"type": "percent", "value": pct}} for sku, pct in items],
     }
     return json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8")

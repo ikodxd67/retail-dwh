@@ -1,0 +1,19 @@
+name: fx_rates
+description: Официальные курсы валют Нацбанка РК (XML API)
+owner: finance
+schedule: "0 */6 * * *"
+tags: [api, xml]
+source:
+  kind: nbk_rates
+  start_date: "2024-12-01"
+  max_days_per_run: 400
+target: stg.fx_rates
+checks:
+  - check: not_null
+    columns: [rate_date, currency, rate]
+  - check: unique
+    columns: [rate_date, currency]
+  - check: sql
+    name: usd_rate_sanity
+    # грубая защита от сдвига запятой в источнике
+    query: SELECT count(*) FROM {table} WHERE currency = 'USD' AND rate NOT BETWEEN 100 AND 2000

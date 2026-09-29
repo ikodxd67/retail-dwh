@@ -1,0 +1,18 @@
+name: catalog_products
+description: Каталог поставщика, XML-снимки из landing/catalog
+owner: category-management
+schedule: "0 * * * *"
+tags: [files, xml]
+source:
+  kind: s3_files
+  prefix: catalog/
+  parser: catalog_xml
+target: stg.catalog_products
+checks:
+  - check: not_null
+    columns: [sku, name, retail_price]
+  - check: unique
+    columns: [sku]
+  - check: accepted_values
+    columns: [purchase_currency]
+    values: [KZT, RUB, USD, CNY]

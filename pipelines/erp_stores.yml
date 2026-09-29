@@ -1,0 +1,16 @@
+name: erp_stores
+description: Справочник магазинов из ERP, полный снимок
+owner: data-platform
+schedule: "0 3 * * *"
+tags: [erp, oracle]
+source:
+  kind: oracle
+  connection: erp
+  query: sql/extract/erp_stores.sql
+  timezone: Asia/Almaty
+target: stg.erp_stores
+checks:
+  - check: row_count_min
+    value: 1
+  - check: unique
+    columns: [store_code]

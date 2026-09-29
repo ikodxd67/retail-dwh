@@ -1,0 +1,23 @@
+name: erp_order_lines
+description: Строки заказов из ERP (Oracle)
+owner: data-platform
+schedule: "*/30 * * * *"
+tags: [erp, oracle]
+source:
+  kind: oracle
+  connection: erp
+  query: sql/extract/erp_order_lines.sql
+  timezone: Asia/Almaty
+  incremental:
+    column: updated_at
+    initial: "2024-12-01T00:00:00"
+    lookback: 60m
+target: stg.erp_order_lines
+checks:
+  - check: not_null
+    columns: [order_no, line_no, sku, qty, unit_price]
+  - check: unique
+    columns: [order_no, line_no]
+  - check: sql
+    name: negative_amounts
+    query: SELECT count(*) FROM {table} WHERE qty <= 0 OR unit_price < 0 OR discount_amt < 0

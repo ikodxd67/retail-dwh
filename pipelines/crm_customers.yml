@@ -1,0 +1,22 @@
+name: crm_customers
+description: Клиенты из CRM (PostgreSQL), инкрементально по updated_at
+owner: crm-team
+schedule: "15 * * * *"
+tags: [crm, postgres, pii]
+source:
+  kind: postgres
+  connection: crm
+  query: sql/extract/crm_customers.sql
+  incremental:
+    column: updated_at
+    initial: "2020-01-01T00:00:00+00:00"
+    lookback: 10m
+target: stg.crm_customers
+checks:
+  - check: not_null
+    columns: [customer_id, first_name, created_at]
+  - check: unique
+    columns: [customer_id]
+  - check: accepted_values
+    columns: [loyalty_tier]
+    values: [basic, silver, gold, platinum]

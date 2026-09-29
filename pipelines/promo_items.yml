@@ -1,0 +1,17 @@
+name: promo_items
+description: Промо-акции маркетинга, JSON из landing/promo
+owner: marketing
+schedule: "0 5 * * *"
+tags: [files, json]
+source:
+  kind: s3_files
+  prefix: promo/
+  parser: promo_json
+  max_files_per_run: 200
+target: stg.promo_items
+checks:
+  - check: not_null
+    columns: [campaign_id, sku, valid_from]
+  - check: sql
+    name: discount_out_of_range
+    query: SELECT count(*) FROM {table} WHERE discount_pct NOT BETWEEN 0 AND 90

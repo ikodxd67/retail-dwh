@@ -72,7 +72,8 @@ def customer_row(customer_id: int) -> dict:
         "first_name": first,
         "last_name": last,
         "birth_date": date(1960, 1, 1) + timedelta(days=rnd.randint(0, 16000))
-        if rnd.random() > 0.1 else None,
+        if rnd.random() > 0.1
+        else None,
         "gender": "F" if female else "M",
         "city": rnd.choices([c for c, _ in CITIES], weights=[w for _, w in CITIES])[0],
         "loyalty_tier": rnd.choices(TIERS, weights=[70, 20, 8, 2])[0],
@@ -158,24 +159,28 @@ class OrderGenerator:
                 if rnd.random() < 0.001:
                     customer_id = known + rnd.randint(1000, 5000)  # клиента нет в CRM
             # кассы выгружают чеки в ERP пачками, поэтому updated_at отстаёт от продажи
-            delay = timedelta(seconds=rnd.randint(1, 30)) if online else timedelta(
-                minutes=rnd.choice([1, 5, 15, 30, 60]) * rnd.random()
+            delay = (
+                timedelta(seconds=rnd.randint(1, 30))
+                if online
+                else timedelta(minutes=rnd.choice([1, 5, 15, 30, 60]) * rnd.random())
             )
             updated = min(ts + delay, now)
             status = "CANCELLED" if rnd.random() < 0.02 else "PAID"
-            orders.append({
-                "order_id": order_id,
-                "order_no": f"{store.store_code}-{ts:%y%m%d}-{order_id}",
-                "store_id": store.store_id,
-                "customer_id": customer_id,
-                "order_ts": ts,
-                "channel": "WEB" if online else "STORE",
-                "status": status,
-                "payment_type": rnd.choices(
-                    ["CARD", "QR", "CASH"], weights=[60, 30, 0 if online else 25]
-                )[0],
-                "updated_at": updated,
-            })
+            orders.append(
+                {
+                    "order_id": order_id,
+                    "order_no": f"{store.store_code}-{ts:%y%m%d}-{order_id}",
+                    "store_id": store.store_id,
+                    "customer_id": customer_id,
+                    "order_ts": ts,
+                    "channel": "WEB" if online else "STORE",
+                    "status": status,
+                    "payment_type": rnd.choices(
+                        ["CARD", "QR", "CASH"], weights=[60, 30, 0 if online else 25]
+                    )[0],
+                    "updated_at": updated,
+                }
+            )
             n_lines = min(12, 1 + int(rnd.expovariate(0.45)))
             skus: set[str] = set()
             for _ in range(n_lines):
@@ -186,21 +191,26 @@ class OrderGenerator:
                 sku = product.sku
                 if rnd.random() < 0.0003:
                     sku = f"SKU-9{rnd.randint(10000, 99999)}"  # нет в каталоге
-                qty = round(rnd.uniform(0.2, 2.5), 3) if product.unit == "кг" else rnd.choices(
-                    [1, 2, 3, 4, 6], weights=[70, 18, 6, 4, 2])[0]
+                qty = (
+                    round(rnd.uniform(0.2, 2.5), 3)
+                    if product.unit == "кг"
+                    else rnd.choices([1, 2, 3, 4, 6], weights=[70, 18, 6, 4, 2])[0]
+                )
                 price = self.world.retail_price(product, day)
                 pct = self._promo.get(sku, 0)
                 if not pct and customer_id and rnd.random() < 0.05:
                     pct = 3  # скидка по карте лояльности
-                lines.append({
-                    "order_id": order_id,
-                    "line_no": len(skus),
-                    "sku": sku,
-                    "qty": qty,
-                    "unit_price": price,
-                    "discount_amt": round(price * qty * pct / 100, 2),
-                    "updated_at": updated,
-                })
+                lines.append(
+                    {
+                        "order_id": order_id,
+                        "line_no": len(skus),
+                        "sku": sku,
+                        "qty": qty,
+                        "unit_price": price,
+                        "discount_amt": round(price * qty * pct / 100, 2),
+                        "updated_at": updated,
+                    }
+                )
             order_id += 1
         return OrderBatch(orders, lines)
 

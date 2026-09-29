@@ -12,12 +12,21 @@ import random
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from functools import cached_property
+from typing import ClassVar
 
 HISTORY_START = date(2025, 1, 1)
 
 CITIES = [
-    ("Алматы", 9), ("Астана", 7), ("Шымкент", 5), ("Караганда", 3), ("Актобе", 3),
-    ("Павлодар", 2), ("Усть-Каменогорск", 2), ("Атырау", 2), ("Костанай", 2), ("Тараз", 2),
+    ("Алматы", 9),
+    ("Астана", 7),
+    ("Шымкент", 5),
+    ("Караганда", 3),
+    ("Актобе", 3),
+    ("Павлодар", 2),
+    ("Усть-Каменогорск", 2),
+    ("Атырау", 2),
+    ("Костанай", 2),
+    ("Тараз", 2),
 ]
 
 CATEGORY_TREE: dict[str, dict[str, list[str]]] = {
@@ -55,21 +64,70 @@ PRICE_BANDS = {
 }
 
 BRANDS = [
-    "Food Master", "Адал", "Рахат", "Цесна", "Bonduelle", "Persil", "Ariel", "Fairy",
-    "Colgate", "Head&Shoulders", "Tefal", "Philips", "Xiaomi", "Baseus", "Luminarc",
-    "Домашний уют", "Экономия", "Kazakhstan Textile", "Шын", "Sabi",
+    "Food Master",
+    "Адал",
+    "Рахат",
+    "Цесна",
+    "Bonduelle",
+    "Persil",
+    "Ariel",
+    "Fairy",
+    "Colgate",
+    "Head&Shoulders",
+    "Tefal",
+    "Philips",
+    "Xiaomi",
+    "Baseus",
+    "Luminarc",
+    "Домашний уют",
+    "Экономия",
+    "Kazakhstan Textile",
+    "Шын",
+    "Sabi",
 ]
 
 # грубые курсы только для генерации закупочных цен; в DWH идут настоящие курсы НБРК
 APPROX_KZT_RATE = {"KZT": 1.0, "USD": 505.0, "RUB": 6.1, "CNY": 70.0}
 
 FIRST_NAMES = [
-    "Айгерим", "Алия", "Дана", "Жанна", "Мадина", "Асель", "Анна", "Елена", "Ольга", "Сауле",
-    "Нурлан", "Ерлан", "Асхат", "Даурен", "Айдос", "Серик", "Алексей", "Дмитрий", "Иван", "Тимур",
+    "Айгерим",
+    "Алия",
+    "Дана",
+    "Жанна",
+    "Мадина",
+    "Асель",
+    "Анна",
+    "Елена",
+    "Ольга",
+    "Сауле",
+    "Нурлан",
+    "Ерлан",
+    "Асхат",
+    "Даурен",
+    "Айдос",
+    "Серик",
+    "Алексей",
+    "Дмитрий",
+    "Иван",
+    "Тимур",
 ]
 LAST_NAMES = [
-    "Ахметов", "Серікбаев", "Нурланов", "Жумабаев", "Исаев", "Ким", "Иванов", "Петров",
-    "Смагулов", "Байжанов", "Сидоров", "Ли", "Омаров", "Касымов", "Абдрахманов", "Попов",
+    "Ахметов",
+    "Серікбаев",
+    "Нурланов",
+    "Жумабаев",
+    "Исаев",
+    "Ким",
+    "Иванов",
+    "Петров",
+    "Смагулов",
+    "Байжанов",
+    "Сидоров",
+    "Ли",
+    "Омаров",
+    "Касымов",
+    "Абдрахманов",
+    "Попов",
 ]
 
 
@@ -129,13 +187,29 @@ class World:
                     opened = HISTORY_START + timedelta(days=rnd.randint(30, 400))
                 weight = {"HYPER": 4.0, "SUPER": 1.6, "EXPRESS": 0.6}[fmt] * rnd.uniform(0.8, 1.2)
                 stores.append(
-                    Store(store_id, f"S{store_id:03d}", f"{city}, магазин №{i + 1}", city, fmt,
-                          round(area, 1), opened, weight)
+                    Store(
+                        store_id,
+                        f"S{store_id:03d}",
+                        f"{city}, магазин №{i + 1}",
+                        city,
+                        fmt,
+                        round(area, 1),
+                        opened,
+                        weight,
+                    )
                 )
                 store_id += 1
         stores.append(
-            Store(store_id, "WEB01", "Интернет-магазин", "Алматы", "ONLINE", None,
-                  HISTORY_START - timedelta(days=900), 9.0)
+            Store(
+                store_id,
+                "WEB01",
+                "Интернет-магазин",
+                "Алматы",
+                "ONLINE",
+                None,
+                HISTORY_START - timedelta(days=900),
+                9.0,
+            )
         )
         return stores
 
@@ -192,7 +266,8 @@ class World:
 
     def active_products(self, day: date) -> list[Product]:
         return [
-            p for p in self.products
+            p
+            for p in self.products
             if p.launched_on <= day and (p.discontinued_on is None or p.discontinued_on > day)
         ]
 
@@ -219,9 +294,31 @@ class World:
         season = {12: 1.35, 1: 0.85, 3: 1.1, 9: 1.05}.get(day.month, 1.0)
         return base * growth * weekday * season
 
-    HOUR_PROFILE = [
-        0.1, 0.05, 0.03, 0.02, 0.02, 0.05, 0.2, 0.5, 0.9, 1.1, 1.2, 1.3,
-        1.4, 1.3, 1.2, 1.2, 1.3, 1.6, 1.9, 2.0, 1.7, 1.2, 0.6, 0.3,
+    HOUR_PROFILE: ClassVar[list[float]] = [
+        0.1,
+        0.05,
+        0.03,
+        0.02,
+        0.02,
+        0.05,
+        0.2,
+        0.5,
+        0.9,
+        1.1,
+        1.2,
+        1.3,
+        1.4,
+        1.3,
+        1.2,
+        1.2,
+        1.3,
+        1.6,
+        1.9,
+        2.0,
+        1.7,
+        1.2,
+        0.6,
+        0.3,
     ]
 
     def hourly_orders(self, hour_start: datetime, base: int) -> int:

@@ -1,0 +1,25 @@
+name: erp_orders
+description: Заказы из ERP (Oracle), инкрементально по updated_at
+owner: data-platform
+schedule: "*/30 * * * *"
+tags: [erp, oracle]
+source:
+  kind: oracle
+  connection: erp
+  query: sql/extract/erp_orders.sql
+  timezone: Asia/Almaty
+  incremental:
+    column: updated_at
+    initial: "2024-12-01T00:00:00"
+    # кассы выгружают чеки с задержкой, а транзакция в ERP может закоммититься
+    # позже, чем проставлен updated_at, — перечитываем последний час
+    lookback: 60m
+target: stg.erp_orders
+checks:
+  - check: not_null
+    columns: [order_no, store_code, order_ts, status]
+  - check: unique
+    columns: [order_no]
+  - check: accepted_values
+    columns: [status]
+    values: [PAID, CANCELLED, RETURNED]

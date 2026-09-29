@@ -39,7 +39,7 @@ where = ["src"]
 retail_dwh = ["py.typed"]
 
 [tool.ruff]
-line-length = 100
+line-length = 110
 target-version = "py311"
 src = ["src", "tests", "dags"]
 

@@ -1,0 +1,20 @@
+name: stock_snapshots
+description: Остатки по магазинам, CSV (gzip) из landing/stock
+owner: supply-chain
+schedule: "30 6 * * *"
+tags: [files, csv]
+source:
+  kind: s3_files
+  prefix: stock/
+  parser: stock_csv
+  max_files_per_run: 60
+target: stg.stock_snapshots
+checks:
+  - check: not_null
+    columns: [snapshot_date, store_code, sku, qty_on_hand]
+  - check: unique
+    columns: [snapshot_date, store_code, sku]
+  - check: sql
+    name: negative_stock
+    query: SELECT count(*) FROM {table} WHERE qty_on_hand < 0
+    severity: warn
