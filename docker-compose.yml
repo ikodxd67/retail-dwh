@@ -1,0 +1,148 @@
+# Весь стенд. Сервисы разбиты на профили, потому что целиком стек не влезает
+# в 8 ГБ, которые обычно выделены Docker Desktop:
+#
+#   docker compose up -d                          источники + DWH + MinIO
+#   docker compose --profile airflow up -d        + оркестрация
+#   docker compose --profile lake up -d           + Kafka, Spark, Trino, ClickHouse
+#   docker compose --profile monitoring up -d     + Prometheus, Grafana
+#
+# Профили можно складывать: --profile airflow --profile lake.
+
+x-airflow: &airflow
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  profiles: [airflow]
+  env_file: .env
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@dwh-db:5432/airflow
+    AIRFLOW__API_AUTH__JWT_SECRET: local-only-not-a-secret
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+    AIRFLOW__METRICS__STATSD_ON: "true"
+    AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
+    AIRFLOW__METRICS__STATSD_PORT: "9125"
+    AIRFLOW__METRICS__STATSD_PREFIX: airflow
+    PYTHONPATH: /opt/retail/src
+    RETAIL_PROJECT_DIR: /opt/retail
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - ./src:/opt/retail/src:ro
+    - ./pipelines:/opt/retail/pipelines:ro
+    - ./models:/opt/retail/models:ro
+    - ./sql:/opt/retail/sql:ro
+    - ./catalog:/opt/retail/catalog:ro
+    - ./spark:/opt/retail/spark:ro
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    dwh-db:
+      condition: service_healthy
+
+services:
+  # ---------------------------------------------------------------- источники
+  # ERP сети. Oracle Free — бесплатная редакция 23ai, по SQL та же база, что в
+  # проде, только с лимитами на память и размер данных.
+  oracle:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: oracle
+      APP_USER: erp
+      APP_USER_PASSWORD: erp
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # CRM: клиенты и программа лояльности.
+  crm-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: crm
+      POSTGRES_DB: crm
+    ports:
+      - "5433:5432"
+    volumes:
+      - crm-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------- хранилище
+  # Сам DWH. В этой же инстанции лежит база метаданных Airflow — отдельный
+  # сервер ради неё съел бы ещё сотни мегабайт, а на стенде память в дефиците.
+  dwh-db:
+    image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+    environment:
+      POSTGRES_USER: dwh
+      POSTGRES_PASSWORD: dwh
+      POSTGRES_DB: dwh
+    ports:
+      - "5432:5432"
+    volumes:
+      - dwh-data:/var/lib/postgresql/data
+      - ./docker/dwh-db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dwh -d dwh"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # S3-совместимое хранилище: сюда поставщики и склады кладут файлы (landing),
+  # и здесь же лежит озеро с таблицами Delta (lake).
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minio minio12345 &&
+      mc mb --ignore-existing local/landing local/lake local/archive
+      "
+    restart: "no"
+
+volumes:
+  oracle-data:
+  crm-data:
+  dwh-data:
+  minio-data:
+  airflow-logs:
