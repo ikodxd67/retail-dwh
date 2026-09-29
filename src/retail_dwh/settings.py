@@ -34,6 +34,7 @@ class Settings:
     oracle_password: str
     crm_dsn: str
     dwh_dsn: str
+    dwh_readonly_dsn: str
     s3_endpoint: str
     s3_access_key: str
     s3_secret_key: str
@@ -58,6 +59,9 @@ class Settings:
             oracle_password=get("ORACLE_PASSWORD", "erp"),
             crm_dsn=get("CRM_DSN", "postgresql://crm:crm@localhost:5433/crm"),
             dwh_dsn=get("DWH_DSN", "postgresql://dwh:dwh@localhost:5432/dwh"),
+            dwh_readonly_dsn=get(
+                "DWH_READONLY_DSN", "postgresql://monitoring_ro:monitoring_ro@localhost:5432/dwh"
+            ),
             s3_endpoint=get("S3_ENDPOINT", "http://localhost:9000"),
             s3_access_key=get("S3_ACCESS_KEY", "minio"),
             s3_secret_key=get("S3_SECRET_KEY", "minio12345"),

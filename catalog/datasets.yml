@@ -1,0 +1,102 @@
+# Каталог данных: что лежит в витринах, кто владелец, какие поля чувствительны.
+#
+# Lineage здесь не пишется руками — он вычисляется из pipelines/*.yml,
+# models/vault.yml и разбора SQL сборки (retail_dwh.catalog). Руками —
+# только то, что из кода не вывести: смысл, владелец, SLA, классификация.
+#
+# pii: none | pseudonymized | direct
+#   direct         — ФИО, телефон, e-mail: только роль etl, в витрины не попадает
+#   pseudonymized  — идентификатор клиента без прямых данных
+#   none           — персональных данных нет
+
+marts.fact_sales:
+  description: Продажи, одна строка — строка заказа. Выручка, скидки, себестоимость и маржа в тенге.
+  owner: data-platform
+  steward: finance
+  sla: обновление каждые 30 минут, задержка не больше часа
+  pii: pseudonymized
+  grain: строка заказа (order_no, line_no)
+  columns:
+    net_amount: Выручка после скидки. Для отменённых и возвращённых заказов — 0, строка остаётся для учёта возвратов.
+    cost_amount: Себестоимость по закупочной цене поставщика, пересчитанной по курсу НБРК на дату заказа.
+    margin_amount: net_amount - cost_amount.
+    customer_sk: -1 анонимная покупка, -2 клиент есть в ERP, но не найден в CRM.
+    fx_rate_date: Дата курса, по которому пересчитана закупка (последний известный курс на дату заказа).
+    promo_campaign_id: Акция, действовавшая на товар в день заказа, если была.
+
+marts.fact_stock_daily:
+  description: Остатки по магазинам на конец дня (периодический снимок).
+  owner: supply-chain
+  steward: supply-chain
+  sla: ежедневно до 08:00
+  pii: none
+  grain: дата × магазин × товар
+
+marts.dim_customer:
+  description: Клиенты, история изменений (SCD2). Без ФИО, телефонов и e-mail.
+  owner: crm-team
+  steward: marketing
+  sla: ежечасно
+  pii: pseudonymized
+  grain: версия клиента
+  columns:
+    valid_from: Когда версия начала действовать в CRM. У первой версии -infinity, чтобы старые заказы нашли клиента.
+    email_domain: Только домен почты — для аналитики каналов без раскрытия адреса.
+
+marts.dim_product:
+  description: Товары (SCD1) со ссылкой на иерархию категорий (снежинка).
+  owner: category-management
+  steward: category-management
+  pii: none
+  columns:
+    in_catalog: false — товар встречается в заказах, но его нет в каталоге поставщика.
+
+marts.v_product:
+  description: Плоское представление товара с группой, категорией и подкатегорией — для BI.
+  owner: category-management
+  pii: none
+
+marts.dim_store:
+  description: Магазины сети (SCD1).
+  owner: data-platform
+  pii: none
+
+marts.dim_date:
+  description: Календарь с праздниками РК.
+  owner: data-platform
+  pii: none
+
+marts.customer_rfm:
+  description: RFM-сегменты клиентов по оплаченным заказам за 365 дней. Пересчитывается целиком.
+  owner: marketing
+  pii: pseudonymized
+
+marts.v_sales_wide:
+  description: Плоская звезда продаж — источник публикации в ClickHouse.
+  owner: data-platform
+  pii: pseudonymized
+
+raw_vault.sat_customer_pii:
+  description: Персональные данные клиентов. Доступ только у роли etl, в витрины не выводится.
+  owner: crm-team
+  pii: direct
+
+clickhouse.retail.sales_wide:
+  description: Копия v_sales_wide в ClickHouse для дашбордов; публикуется помесячно REPLACE PARTITION.
+  owner: data-platform
+  pii: pseudonymized
+
+clickhouse.retail.web_funnel_daily:
+  description: Воронка сайта по дням, устройствам и источникам трафика.
+  owner: web-analytics
+  pii: none
+
+lake.web.events:
+  description: События сайта из Kafka (Delta, bronze), без дублей по event_id.
+  owner: web-analytics
+  pii: pseudonymized
+
+lake.web.sessions:
+  description: Сессии сайта (Delta, silver), одна строка — сессия.
+  owner: web-analytics
+  pii: pseudonymized

@@ -1,0 +1,8 @@
+{
+  "catalogs": [
+    {"user": "mcp-agent", "catalog": "erp", "allow": "none"},
+    {"user": "mcp-agent", "catalog": "(dwh|ch|lake|system)", "allow": "read-only"},
+    {"user": "mcp-agent", "allow": "none"},
+    {"allow": "all"}
+  ]
+}

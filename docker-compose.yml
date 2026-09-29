@@ -348,6 +348,9 @@ services:
       - "8085:8080"
     volumes:
       - ./docker/trino/catalog:/etc/trino/catalog:ro
+      # правила доступа: у пользователя mcp-agent (AI-агенты) только чтение
+      - ./docker/trino/etc/access-control.properties:/etc/trino/access-control.properties:ro
+      - ./docker/trino/etc/rules.json:/etc/trino/rules.json:ro
     environment:
       JAVA_TOOL_OPTIONS: -Xmx1g
 

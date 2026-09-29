@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "retail-dwh": {
+      "command": "python",
+      "args": ["-m", "retail_dwh.mcp_server"],
+      "env": {
+        "RETAIL_TRINO_HOST": "localhost",
+        "RETAIL_TRINO_PORT": "8085"
+      }
+    }
+  }
+}

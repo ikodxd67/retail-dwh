@@ -33,11 +33,11 @@ def jobs():
     return web_events
 
 
-def trino_cursor():
+def trino_cursor(user: str = "retail-dwh"):
     import trino
 
     s = settings()
-    return trino.dbapi.connect(host=s.trino_host, port=s.trino_port, user="retail-dwh").cursor()
+    return trino.dbapi.connect(host=s.trino_host, port=s.trino_port, user=user).cursor()
 
 
 def register_delta_tables() -> list[str]:
