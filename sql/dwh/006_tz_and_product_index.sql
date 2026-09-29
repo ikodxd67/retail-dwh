@@ -1,6 +1,8 @@
 -- Отчёты считают дни и месяцы по времени Алматы, а не по UTC: иначе
 -- ночные покупки 1-го числа уезжают в прошлый месяц.
-ALTER DATABASE dwh SET timezone TO 'Asia/Almaty';
+DO $$ BEGIN
+    EXECUTE format('ALTER DATABASE %I SET timezone TO %L', current_database(), 'Asia/Almaty');
+END $$;
 
 -- Запросы вида «продажи товара за период» (промо-эффект, окно назад)
 -- шли по индексу product_sk через всю историю товара и фильтровали дату

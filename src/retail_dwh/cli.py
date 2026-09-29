@@ -14,6 +14,7 @@ def main(argv: list[str] | None = None) -> None:
     sim = sub.add_parser("simulate", help="догнать источники до текущего момента")
     sim.add_argument("--seed", type=int, default=42)
     sim.add_argument("--orders-per-day", type=int, default=700)
+    sim.add_argument("--stock-days", type=int, default=45, help="за сколько дней выложить остатки")
 
     sub.add_parser("migrate", help="применить миграции DWH")
 
@@ -40,7 +41,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "simulate":
         from retail_dwh.generator.simulator import Simulator
 
-        print(json.dumps(Simulator(args.seed, args.orders_per_day).run(), ensure_ascii=False))
+        stats = Simulator(args.seed, args.orders_per_day, args.stock_days).run()
+        print(json.dumps(stats, ensure_ascii=False))
 
     elif args.cmd == "migrate":
         from retail_dwh.migrate import migrate
