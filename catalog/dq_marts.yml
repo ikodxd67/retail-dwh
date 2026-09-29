@@ -1,0 +1,72 @@
+# Проверки витрин после сборки. Формат тот же, что у checks в pipelines/*.yml.
+# check: sql — запрос возвращает число нарушений; value — допустимый максимум.
+
+marts.fact_sales:
+  - check: sql
+    name: lines_match_vault
+    # каждая строка заказа из vault должна оказаться в факте, и ничего лишнего
+    query: >-
+      SELECT abs((SELECT count(*) FROM raw_vault.lnk_order_line)
+               - (SELECT count(*) FROM marts.fact_sales))
+  - check: sql
+    name: revenue_matches_vault
+    # сверка выручки с сырым слоем, расхождение в тенге
+    query: >-
+      WITH v AS (
+        SELECT sum(CASE WHEN o.status = 'PAID' THEN l.qty * l.unit_price - l.discount_amt ELSE 0 END) AS amount
+        FROM raw_vault.lnk_order_line k
+        JOIN LATERAL (SELECT * FROM raw_vault.sat_order_line_erp s WHERE s.hk_order_line = k.hk_order_line
+                      ORDER BY s.load_dts DESC LIMIT 1) l ON true
+        JOIN LATERAL (SELECT * FROM raw_vault.sat_order_erp s WHERE s.hk_order = k.hk_order
+                      ORDER BY s.load_dts DESC LIMIT 1) o ON true
+      )
+      SELECT abs(v.amount - (SELECT sum(net_amount) FROM marts.fact_sales)) FROM v
+    value: 1
+  - check: sql
+    name: orphan_store_keys
+    query: SELECT count(*) FROM marts.fact_sales f LEFT JOIN marts.dim_store d USING (store_sk) WHERE d.store_sk IS NULL
+  - check: sql
+    name: orphan_product_keys
+    query: SELECT count(*) FROM marts.fact_sales f LEFT JOIN marts.dim_product d USING (product_sk) WHERE d.product_sk IS NULL
+  - check: sql
+    name: customers_missing_in_crm_pct
+    # заказы на клиентов, которых нет в CRM: немного бывает, много — сломана интеграция
+    query: >-
+      SELECT round(100.0 * count(*) FILTER (WHERE customer_sk = -2) / nullif(count(*), 0), 3)
+      FROM marts.fact_sales WHERE order_ts > now() - interval '30 days'
+    value: 0.5
+    severity: warn
+  - check: sql
+    name: lines_without_cost_pct
+    query: >-
+      SELECT round(100.0 * count(*) FILTER (WHERE unit_cost_kzt IS NULL) / nullif(count(*), 0), 3)
+      FROM marts.fact_sales WHERE order_ts > now() - interval '30 days'
+    value: 1
+    severity: warn
+  - check: sql
+    name: freshness_hours
+    # последний заказ в витрине не старше 3 часов
+    query: SELECT extract(epoch FROM now() - max(order_ts)) / 3600 FROM marts.fact_sales
+    value: 3
+    severity: warn
+
+marts.dim_customer:
+  - check: sql
+    name: scd2_single_current
+    query: >-
+      SELECT count(*) FROM (SELECT hk_customer FROM marts.dim_customer WHERE hk_customer IS NOT NULL
+                            GROUP BY hk_customer HAVING count(*) FILTER (WHERE is_current) <> 1) x
+  - check: sql
+    name: scd2_no_gaps_or_overlaps
+    # конец версии должен совпадать с началом следующей
+    query: >-
+      SELECT count(*) FROM (
+        SELECT valid_from, lag(valid_to) OVER (PARTITION BY hk_customer ORDER BY valid_from) AS prev_to
+        FROM marts.dim_customer WHERE hk_customer IS NOT NULL
+      ) x WHERE prev_to IS NOT NULL AND prev_to <> valid_from
+
+marts.fact_stock_daily:
+  - check: sql
+    name: negative_stock
+    query: SELECT count(*) FROM marts.fact_stock_daily WHERE qty_on_hand < 0
+    severity: warn
