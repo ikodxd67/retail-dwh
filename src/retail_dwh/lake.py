@@ -59,5 +59,9 @@ def register_delta_tables() -> list[str]:
             cur.fetchall()
             registered.append(name)
         except Exception as exc:  # таблицы ещё нет в озере — зарегистрируем в следующий раз
+            # а вот запрет доступа сам не пройдёт: задача должна упасть, а не
+            # молча отчитаться об успехе с пустым списком
+            if getattr(exc, "error_name", None) == "PERMISSION_DENIED":
+                raise
             log.warning("не удалось зарегистрировать %s: %s", name, exc)
     return registered

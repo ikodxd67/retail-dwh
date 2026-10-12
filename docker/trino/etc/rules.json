@@ -4,5 +4,8 @@
     {"user": "mcp-agent", "catalog": "(dwh|ch|lake|system)", "allow": "read-only"},
     {"user": "mcp-agent", "allow": "none"},
     {"allow": "all"}
+  ],
+  "procedures": [
+    {"user": "retail-dwh", "catalog": "lake", "schema": "system", "procedure": "register_table", "privileges": ["EXECUTE"]}
   ]
 }
