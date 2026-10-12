@@ -60,6 +60,69 @@ flowchart LR
 More: [architecture](docs/architecture.md) · [decisions and trade-offs](docs/decisions.md) ·
 [measurements](docs/performance.md) · [runbook](docs/runbook.md) (docs are in Russian)
 
+## Screenshots
+
+Taken on the running stand on 2026-10-13. The stand was regenerated from
+scratch for this, so it is smaller than the one in [measurements](docs/performance.md):
+128k order lines instead of 1.45M. Timings in the screenshots are not
+comparable with the measurements. The Grafana dashboard is in Russian.
+
+**Airflow: 13 DAGs.** Eight `ingest__*` DAGs are built by one factory from
+the YAML files in `pipelines/`; `dwh_build` and `publish_clickhouse` have no
+cron schedule and run on data (Assets).
+
+![Airflow DAG list](docs/img/airflow_dags.png)
+
+**Airflow: `dwh_build` started by data, not by the clock.** After an
+`ingest__erp_orders` run, all three builds have the type *Asset Triggered*.
+On the right are the assets the build produced; the `marts.fact_sales` event
+in turn triggered `publish_clickhouse`.
+
+![dwh_build: runs triggered by assets and the asset events they created](docs/img/airflow_dwh_build.png)
+
+**Grafana: freshness, loads, data quality, Airflow.** Minutes since the last
+successful load per source, rows per run, the batch journal, check history
+and DAG durations. "No data" in the failing-checks and task-failures panels
+means nothing is failing.
+
+![Grafana dashboard](docs/img/grafana.png)
+
+**Prometheus: alert rules.** Data freshness is alerted separately from task
+failures: a DAG can be green while no new data arrives.
+
+![Prometheus alert rules](docs/img/prometheus_alerts.png)
+
+**Trino: one query across two systems.** Orders per day in Oracle (ERP)
+against orders in ClickHouse at the end of the whole path
+ERP → stg → vault → star → ClickHouse
+([`sql/trino/02_reconcile_erp_vs_clickhouse.sql`](sql/trino/02_reconcile_erp_vs_clickhouse.sql)).
+
+![Trino query reading Oracle and ClickHouse](docs/img/trino_federated.png)
+
+The result on the stand: the difference is 0 for every day.
+
+| day | erp_orders | clickhouse_orders | diff |
+|---|---|---|---|
+| 2026-10-06 | 60 | 60 | 0 |
+| 2026-10-07 | 95 | 95 | 0 |
+| 2026-10-08 | 68 | 68 | 0 |
+| 2026-10-09 | 75 | 75 | 0 |
+| 2026-10-10 | 102 | 102 | 0 |
+| 2026-10-11 | 96 | 96 | 0 |
+| 2026-10-12 | 69 | 69 | 0 |
+| 2026-10-13 | 3 | 3 | 0 |
+
+**ClickHouse: the published sales mart.** Revenue, margin and orders by
+month × product group × city over the whole history; product and city names
+are Russian, as in the source systems.
+
+![ClickHouse query over the sales mart](docs/img/clickhouse.png)
+
+**CI: lint and unit tests, DAG tests in the Airflow image, integration tests
+on live Oracle and PostgreSQL.**
+
+![GitHub Actions run](docs/img/ci.png)
+
 ## Running it
 
 Docker (8 GB of memory for Docker Desktop) and Python 3.12.

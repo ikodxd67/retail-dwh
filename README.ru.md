@@ -60,6 +60,67 @@ flowchart LR
 Подробнее: [архитектура](docs/architecture.md) · [решения и компромиссы](docs/decisions.md) ·
 [замеры](docs/performance.md) · [runbook](docs/runbook.md)
 
+## Скриншоты
+
+Сняты на работающем стенде 13.10.2026. Для этого стенд собран заново, и он
+меньше того, на котором делались [замеры](docs/performance.md): 128 тыс. строк
+заказов вместо 1,45 млн. Время на скриншотах с замерами не сравнивается.
+
+**Airflow: 13 DAG-ов.** Восемь `ingest__*` строит одна фабрика из YAML-файлов
+в `pipelines/`; у `dwh_build` и `publish_clickhouse` нет cron-расписания,
+они запускаются по данным (Assets).
+
+![Список DAG-ов в Airflow](docs/img/airflow_dags.png)
+
+**Airflow: `dwh_build` запускается по данным, а не по часам.** После запуска
+`ingest__erp_orders` все три сборки имеют тип *Asset Triggered*. Справа
+события, которые создала сборка; событие `marts.fact_sales` в свою очередь
+запустило `publish_clickhouse`.
+
+![dwh_build: запуски по Asset-ам и созданные ими события](docs/img/airflow_dwh_build.png)
+
+**Grafana: свежесть, загрузки, качество данных, Airflow.** Сколько минут
+прошло с последней успешной загрузки каждого источника, строки за запуск,
+журнал партий, история проверок и длительность DAG-ов. «No data» в панелях
+непройденных проверок и падений задач значит, что ничего не падает.
+
+![Дашборд Grafana](docs/img/grafana.png)
+
+**Prometheus: правила алертов.** Свежесть данных отслеживается отдельно от
+падений задач: DAG может быть зелёным, а новых данных при этом нет.
+
+![Правила алертов в Prometheus](docs/img/prometheus_alerts.png)
+
+**Trino: один запрос через две системы.** Число заказов по дням в Oracle
+(ERP) против числа заказов в ClickHouse в конце всего пути
+ERP → stg → vault → звезда → ClickHouse
+([`sql/trino/02_reconcile_erp_vs_clickhouse.sql`](sql/trino/02_reconcile_erp_vs_clickhouse.sql)).
+
+![Запрос Trino читает Oracle и ClickHouse](docs/img/trino_federated.png)
+
+Результат на стенде: расхождение 0 за каждый день.
+
+| day | erp_orders | clickhouse_orders | diff |
+|---|---|---|---|
+| 2026-10-06 | 60 | 60 | 0 |
+| 2026-10-07 | 95 | 95 | 0 |
+| 2026-10-08 | 68 | 68 | 0 |
+| 2026-10-09 | 75 | 75 | 0 |
+| 2026-10-10 | 102 | 102 | 0 |
+| 2026-10-11 | 96 | 96 | 0 |
+| 2026-10-12 | 69 | 69 | 0 |
+| 2026-10-13 | 3 | 3 | 0 |
+
+**ClickHouse: опубликованная витрина продаж.** Выручка, маржа и заказы по
+месяцам × группам товаров × городам за всю историю.
+
+![Запрос к витрине продаж в ClickHouse](docs/img/clickhouse.png)
+
+**CI: линтер и юнит-тесты, тесты DAG-ов в образе Airflow, интеграционные тесты
+на живых Oracle и PostgreSQL.**
+
+![Прогон GitHub Actions](docs/img/ci.png)
+
 ## Запуск
 
 Нужен Docker (память для Docker Desktop — 8 ГБ) и Python 3.12.
