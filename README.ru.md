@@ -121,6 +121,34 @@ ERP → stg → vault → звезда → ClickHouse
 
 ![Прогон GitHub Actions](docs/img/ci.png)
 
+### Kubernetes (kind)
+
+То же ядро в локальном кластере kind
+([docs/kubernetes.md](docs/kubernetes.md)), снято 13.10.2026.
+
+**Поды во время прогона `web_events`.** Задача Airflow
+`web-events-ingest-from-kafka-…` — отдельный под (KubernetesExecutor), а
+`spark-exec-1/2` — executor-ы Spark, которые драйвер заказал у Kubernetes
+под эту загрузку. PostgreSQL и S3 — StatefulSet.
+
+![kubectl get pods во время прогона web_events](docs/img/k8s_pods.png)
+
+**Airflow: задача выполнялась в поде.** *Hostname* у задачи — имя пода, в
+котором она работала; лог на вкладке *Logs* читается из S3, потому что под
+после задачи удаляется.
+
+![Детали задачи Airflow: hostname — имя пода](docs/img/k8s_airflow_task_pod.png)
+
+**Spark: executor-ы на Kubernetes.** Драйвер доступен по headless-сервису
+`spark-driver.retail-dwh.svc`, адреса executor-ов — IP подов.
+
+![Страница executor-ов в Spark UI](docs/img/k8s_spark_executors.png)
+
+**CI: весь стенд Kubernetes в GitHub Actions** — kind, образ, манифесты,
+Helm-чарт, разбор DAG-ов и Spark-задача на подах executor-ов.
+
+![Джоб k8s в GitHub Actions](docs/img/k8s_ci.png)
+
 ## Запуск
 
 Нужен Docker (память для Docker Desktop — 8 ГБ) и Python 3.12.

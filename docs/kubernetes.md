@@ -178,6 +178,22 @@ docker-сети `kind` и создаёт Service без селектора с En
 - Повторный `up.sh` на живом кластере (пересборка образа, upgrade чарта)
   проходит без ручных шагов.
 
+## Скриншоты
+
+Поды во время прогона `web_events`: задача Airflow — отдельный под,
+`spark-exec-1/2` — executor-ы, заказанные драйвером.
+
+![kubectl get pods](img/k8s_pods.png)
+
+Задача Airflow: *Hostname* — имя пода, в котором она выполнялась.
+
+![Детали задачи Airflow](img/k8s_airflow_task_pod.png)
+
+Spark UI: драйвер за headless-сервисом, executor-ы с IP подов (те же
+10.244.0.77 и .78, что у `spark-exec-1/2`).
+
+![Executor-ы в Spark UI](img/k8s_spark_executors.png)
+
 ## Чем это не прод
 
 - Один узел: упал узел — упало всё. В проде — управляемый кластер (EKS,

@@ -123,6 +123,34 @@ on live Oracle and PostgreSQL.**
 
 ![GitHub Actions run](docs/img/ci.png)
 
+### Kubernetes (kind)
+
+The same core running in a local kind cluster
+([docs/kubernetes.md](docs/kubernetes.md)), taken on 2026-10-13.
+
+**Pods during a `web_events` run.** The Airflow task
+`web-events-ingest-from-kafka-…` is its own pod (KubernetesExecutor), and
+`spark-exec-1/2` are Spark executors that the driver requested from
+Kubernetes for this load. PostgreSQL and S3 are StatefulSets.
+
+![kubectl get pods during a web_events run](docs/img/k8s_pods.png)
+
+**Airflow: the task ran in a pod.** The *Hostname* of the task instance is
+the name of the pod it ran in; the log on the *Logs* tab is read back from
+S3, because the pod is deleted after the task.
+
+![Airflow task details with the pod name as hostname](docs/img/k8s_airflow_task_pod.png)
+
+**Spark: executors on Kubernetes.** The driver is reached by the headless
+service `spark-driver.retail-dwh.svc`; executor addresses are pod IPs.
+
+![Spark UI executors page](docs/img/k8s_spark_executors.png)
+
+**CI: the whole Kubernetes stand in GitHub Actions** — kind, image, manifests,
+Helm chart, DAG parsing and a Spark job on executor pods.
+
+![GitHub Actions k8s job](docs/img/k8s_ci.png)
+
 ## Running it
 
 Docker (8 GB of memory for Docker Desktop) and Python 3.12.
