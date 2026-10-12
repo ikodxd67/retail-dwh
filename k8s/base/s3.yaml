@@ -1,0 +1,85 @@
+# S3 (SeaweedFS): файлы поставщиков (landing), озеро Delta (lake) и логи
+# задач Airflow. Один под «всё в одном» — master, volume, filer и S3-шлюз,
+# как и в compose.
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+spec:
+  selector:
+    app: s3
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: s3
+spec:
+  serviceName: s3
+  replicas: 1
+  selector:
+    matchLabels:
+      app: s3
+  template:
+    metadata:
+      labels:
+        app: s3
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.48
+          args:
+            - server
+            - -dir=/data
+            - -ip.bind=0.0.0.0
+            # части сервера находят друг друга по этому адресу и запоминают
+            # его в метаданных. IP пода после пересоздания другой, а
+            # 127.0.0.1 — нет: все части живут в одном поде.
+            - -ip=127.0.0.1
+            - -volume.max=0
+            - -master.volumeSizeLimitMB=256
+            - -s3
+            - -s3.port=9000
+            - -s3.config=/etc/seaweedfs/s3.json
+          ports:
+            - name: s3
+              containerPort: 9000
+          # без подписи S3 отвечает 403, а httpGet считает 403 провалом —
+          # поэтому проверяем просто, что порт принимает соединения
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/seaweedfs/s3.json
+              subPath: s3.json
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: s3-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

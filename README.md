@@ -146,10 +146,18 @@ docker compose --profile lake up -d         # Kafka, Spark :4040, Trino :8085, C
 docker compose --profile monitoring up -d   # Grafana :3000, Prometheus :9090
 ```
 
+The core (DWH, S3, Airflow with KubernetesExecutor, Spark, Trino) can also
+run in a local Kubernetes cluster (kind + Helm), with the sources staying in
+compose — see [docs/kubernetes.md](docs/kubernetes.md):
+
+```bash
+k8s/scripts/up.sh
+```
+
 Tests:
 
 ```bash
-pytest -m "not integration"   # 43 tests, seconds
+pytest -m "not integration"   # 52 tests, seconds
 pytest -m integration         # against the running stand
 ```
 
@@ -169,7 +177,8 @@ pytest -m integration         # against the running stand
 | **Monitoring** | Airflow metrics (StatsD), load and check metrics (Pushgateway), data freshness alerts, a Grafana dashboard |
 | **Governance** | catalog with owners and PII classes, **lineage computed from code** (sqlglot); a test that personal data does not reach the marts |
 | **AI agents** | MCP server: catalog search, lineage, pipeline state, DQ, read-only SQL (enforced by Trino permissions, not only by a parser). Skills for common tasks: add a source, triage a failed check |
-| **CI** | GitHub Actions: linter and unit tests; DAG tests in the same Airflow image; integration tests on live Oracle and PostgreSQL |
+| **Kubernetes** | kind + Helm: Airflow chart with **KubernetesExecutor** (a task is a pod, logs in S3), Spark Connect driver with executor pods on demand, PostgreSQL and S3 as StatefulSets, external services via selector-less Services ([docs/kubernetes.md](docs/kubernetes.md)) |
+| **CI** | GitHub Actions: linter and unit tests; DAG tests in the same Airflow image; integration tests on live Oracle and PostgreSQL; the whole Kubernetes stand in kind |
 
 ## Measurements
 
@@ -203,14 +212,16 @@ dags/               Airflow DAGs
 spark/jobs/         Spark: Kafka -> Delta -> sessions
 src/retail_dwh/     code: loading, vault, marts, DQ, publishing, catalog, MCP
 docker/             service images and configs
+k8s/                kind cluster: manifests, Airflow Helm values, scripts
 .claude/skills/     instructions for AI agents
 ```
 
 ## What is not here
 
 No Greenplum or Vertica: PostgreSQL and ClickHouse instead, reasons in
-[decisions.md](docs/decisions.md). No Kubernetes or Helm: the stand runs on
-one machine in docker compose. Instead of AWS S3 — SeaweedFS with the same API
+[decisions.md](docs/decisions.md). No managed cloud cluster: Kubernetes
+here is a single-node kind on a laptop, it shows the deployment but adds no
+fault tolerance. Instead of AWS S3 — SeaweedFS with the same API
 (MinIO was used, but its images became unavailable in 2026 — see
 [decisions.md](docs/decisions.md)). No Alertmanager: alerts are visible in
 Prometheus but not sent anywhere.

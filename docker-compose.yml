@@ -13,6 +13,7 @@ x-airflow: &airflow
   build:
     context: .
     dockerfile: docker/airflow/Dockerfile
+    target: base
   profiles: [airflow]
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor

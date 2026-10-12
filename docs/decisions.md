@@ -35,6 +35,17 @@ Spark (только клиент `pyspark[connect]`). Задачи Airflow ос�
 должны быть одной версии, а в Python 3.12 pyspark 3.5 требует setuptools
 (импортирует `distutils`).
 
+### Spark на Kubernetes: Connect-сервер, а не spark-submit из DAG
+
+В kind драйвер — долгоживущий под `spark-connect` (client mode), а
+executor-ы он заказывает у Kubernetes по требованию (dynamic allocation).
+Альтернативы: `spark-submit --deploy-mode cluster` из задачи или Spark
+Operator с ресурсом `SparkApplication`. Они дают отдельный драйвер на
+каждую задачу — лучше изоляция, но дольше старт: под драйвера
+и скачивание jar-ов при каждом запуске, и код задач пришлось бы
+переписать. С Connect код DAG-ов одинаков в compose и в Kubernetes. Для
+тяжёлых ночных задач с разными версиями зависимостей я бы взял Operator.
+
 ### Микропакеты (availableNow) по расписанию, а не постоянный поток
 
 Для воронки сайта задержка в 10 минут приемлема, а постоянно работающий
@@ -88,5 +99,8 @@ CDC через Debezium и Kafka — дала бы секундные задер
 - OpenLineage из Airflow вместо своего разбора SQL, если в компании есть
   Marquez или DataHub.
 - Хранение stg по партициям с `DROP PARTITION` вместо `DELETE`.
-- Kubernetes и Helm для Airflow и Spark. На одной машине это был бы
-  маскарад, поэтому здесь compose.
+- Kubernetes — управляемый кластер из нескольких узлов, база вне его
+  (RDS или оператор CloudNativePG), секреты через External Secrets. Сейчас
+  в `k8s/` есть локальный вариант в kind ([kubernetes.md](kubernetes.md)):
+  он показывает, как проект разворачивается, но надёжности не добавляет —
+  узел один.

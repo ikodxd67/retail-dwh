@@ -18,6 +18,7 @@ API Нацбанка и Kafka сводятся в Data Vault (PostgreSQL), из 
 | Каталог: смысл, владелец, PII | `catalog/datasets.yml` |
 | DAG-и | `dags/` (фабрика `ingest_factory.py` читает pipelines/) |
 | Spark-задачи | `spark/jobs/` |
+| Стенд в Kubernetes (kind, Helm) | `k8s/`, описание в `docs/kubernetes.md` |
 
 ## Команды
 
@@ -31,7 +32,13 @@ retail-dwh dq                               # проверки витрин
 retail-dwh vault-sql --table stg.erp_orders # посмотреть сгенерированный SQL
 pytest -m "not integration"                 # быстрые тесты
 pytest -m integration                       # против живого стенда
+k8s/scripts/up.sh                           # то же ядро в kind (см. docs/kubernetes.md)
 ```
+
+В kind имена Service совпадают с compose (`dwh-db`, `s3`, `spark`, `trino`,
+`oracle`, `kafka`), поэтому код и `RETAIL_*` одинаковые. Код задач Airflow
+там запечён в образ (`docker/airflow/Dockerfile`, цель `k8s`): после правки
+кода нужен `k8s/scripts/up.sh`, иначе поды выполнят старую версию.
 
 ## Правила
 

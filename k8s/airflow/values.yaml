@@ -1,0 +1,145 @@
+# Airflow в кластере: официальный чарт apache-airflow/airflow 1.22.0.
+# Здесь только то, чем стенд отличается от значений по умолчанию
+# (полный список: helm show values apache-airflow/airflow --version 1.22.0).
+#
+# Главное отличие от compose — KubernetesExecutor: каждая задача DAG-а
+# стартует в своём поде и после работы под удаляется. Постоянно работают
+# только api-server, scheduler и dag-processor.
+
+executor: KubernetesExecutor
+
+# Ключи подписи для api-server. Без них чарт генерирует новые при каждом
+# helm upgrade, и все компоненты перезапускаются. Значения — только для
+# стенда, как AIRFLOW__API_AUTH__JWT_SECRET в docker-compose.yml.
+apiSecretKey: local-only-not-a-secret
+jwtSecret: local-only-not-a-secret
+
+# Без этого Kubernetes кладёт в каждый под переменные вида KAFKA_PORT и
+# S3_SERVICE_HOST для всех Service в namespace. Имена у нас короткие, и
+# такие переменные легко путаются с настройками программ; адреса и так
+# берутся через DNS.
+enableServiceLinks: false
+
+# Образ с кодом проекта внутри (docker/airflow/Dockerfile, цель k8s).
+# В kind его загружают командой kind load, из реестра он не скачивается.
+defaultAirflowRepository: retail-dwh/airflow
+defaultAirflowTag: k8s
+airflowVersion: "3.3.2"
+images:
+  airflow:
+    pullPolicy: Never
+
+# Метаданные Airflow — в базе airflow на dwh-db, как в compose. Встроенный
+# в чарт PostgreSQL не нужен (и его образ bitnami больше не обновляется).
+postgresql:
+  enabled: false
+data:
+  metadataConnection:
+    user: airflow
+    pass: airflow
+    host: dwh-db
+    port: 5432
+    db: airflow
+    sslmode: disable
+
+# Адреса и пароли проекта (RETAIL_*) — из тех же ConfigMap и Secret,
+# что читают остальные поды (k8s/base/kustomization.yaml). Попадают и в
+# поды задач: чарт кладёт envFrom в шаблон пода KubernetesExecutor.
+extraEnvFrom: |
+  - configMapRef:
+      name: retail-env
+  - secretRef:
+      name: retail-secrets
+  - secretRef:
+      name: airflow-s3-logs
+
+# Подключение для логов. Как Airflow connection в переменной окружения
+# AIRFLOW_CONN_<ID> — без записи в базу.
+extraSecrets:
+  airflow-s3-logs:
+    stringData: |
+      AIRFLOW_CONN_S3_LOGS: '{"conn_type": "aws", "login": "retail", "password": "retail12345", "extra": {"endpoint_url": "http://s3:9000", "region_name": "us-east-1"}}'
+
+config:
+  core:
+    # в чарте по умолчанию FAB; в compose простой менеджер, все — админы
+    auth_manager: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
+    simple_auth_manager_all_admins: "True"
+    # не больше 4 подов задач одновременно — на ноутбуке память кончится раньше
+    parallelism: 4
+  logging:
+    # Под задачи после работы удаляется вместе со своими файлами логов,
+    # поэтому логи пишутся в S3, а api-server читает их оттуда.
+    remote_logging: "True"
+    remote_base_log_folder: s3://airflow-logs/logs
+    remote_log_conn_id: s3_logs
+  metrics:
+    statsd_on: "False"
+  kubernetes_executor:
+    # поды упавших задач оставляем, чтобы было что разбирать через kubectl
+    delete_worker_pods_on_failure: "False"
+
+# Шаблон пода задачи (KubernetesExecutor берёт ресурсы отсюда)
+workers:
+  kubernetes:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        memory: 1Gi
+
+scheduler:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+apiServer:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+dagProcessor:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+
+# Отложенных (deferrable) операторов в проекте нет: сенсоры работают в
+# режиме reschedule. Triggerer не нужен.
+triggerer:
+  enabled: false
+
+# Метрики в compose идут через statsd-exporter в Prometheus; в кластере
+# мониторинг не поднимаем.
+statsd:
+  enabled: false
+
+# Redis нужен только CeleryExecutor
+redis:
+  enabled: false
+
+# Пользователи не нужны: SimpleAuthManager
+createUserJob:
+  enabled: false
+
+# Миграцию базы — обычным Job, а не helm-хуком: с хуком
+# `helm upgrade --install --wait` ждёт готовности подов, а поды ждут
+# миграции, которая стартует только после --wait.
+migrateDatabaseJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+# DAG-и лежат в образе, git-sync выключен. Строка только убирает
+# предупреждение чарта о старом поведении проб git-sync.
+dags:
+  gitSync:
+    recommendedProbeSetting: true

@@ -1,0 +1,44 @@
+# Разовая подготовка: миграции DWH, бакеты S3 и бакет для логов Airflow.
+# Job, а не под: Kubernetes доводит его до успешного завершения сам —
+# упал (например, база ещё не готова) — перезапустит, до backoffLimit раз.
+#
+# Spec у Job менять нельзя, поэтому перед повторным запуском старый удаляют:
+#   kubectl -n retail-dwh delete job bootstrap --ignore-not-found
+#   kubectl -n retail-dwh apply -f k8s/jobs/bootstrap.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap
+  namespace: retail-dwh
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: retail-dwh/airflow:k8s
+          imagePullPolicy: Never
+          command: ["python", "-c"]
+          args:
+            - |
+              import logging
+              logging.basicConfig(level=logging.INFO)
+              from retail_dwh import connections
+              from retail_dwh.migrate import migrate
+              print("миграции:", migrate() or "всё уже применено")
+              s3 = connections.s3()
+              if "airflow-logs" not in {b["Name"] for b in s3.list_buckets().get("Buckets", [])}:
+                  s3.create_bucket(Bucket="airflow-logs")
+              print("бакеты:", [b["Name"] for b in s3.list_buckets()["Buckets"]])
+          envFrom:
+            - configMapRef:
+                name: retail-env
+            - secretRef:
+                name: retail-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

@@ -1,0 +1,76 @@
+# Всё, что живёт в кластере, кроме Airflow (он ставится Helm-чартом).
+#
+# Файлы настроек берутся из docker/ — те же, что монтирует docker compose,
+# чтобы не держать две копии. Kustomize по умолчанию не пускает за пределы
+# своей папки, поэтому собирать так:
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/base | kubectl apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: retail-dwh
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: retail-dwh
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - dwh-db.yaml
+  - s3.yaml
+  - spark.yaml
+  - trino.yaml
+
+configMapGenerator:
+  # адреса сервисов: имена Service совпадают с именами в compose,
+  # поэтому значения те же, что в docker-compose.yml
+  - name: retail-env
+    # имя без хеша: на этот ConfigMap ссылается Helm-чарт Airflow,
+    # а он про суффиксы kustomize ничего не знает
+    options:
+      disableNameSuffixHash: true
+    literals:
+      - RETAIL_DWH_DSN=postgresql://dwh:dwh@dwh-db:5432/dwh
+      - RETAIL_DWH_READONLY_DSN=postgresql://monitoring_ro:monitoring_ro@dwh-db:5432/dwh
+      - RETAIL_S3_ENDPOINT=http://s3:9000
+      - RETAIL_ORACLE_DSN=oracle:1521/FREEPDB1
+      - RETAIL_CRM_DSN=postgresql://crm:crm@crm-db:5432/crm
+      - RETAIL_CLICKHOUSE_HOST=clickhouse
+      - RETAIL_KAFKA_BOOTSTRAP=kafka:19092
+      - RETAIL_TRINO_HOST=trino
+      - RETAIL_TRINO_PORT=8080
+      - RETAIL_SPARK_CONNECT=sc://spark:15002
+  - name: dwh-db-init
+    files:
+      - ../../docker/dwh-db/init/00_init.sql
+  - name: trino-catalog
+    files:
+      - ../../docker/trino/catalog/ch.properties
+      - ../../docker/trino/catalog/dwh.properties
+      - ../../docker/trino/catalog/erp.properties
+      - ../../docker/trino/catalog/lake.properties
+  - name: trino-etc
+    files:
+      - ../../docker/trino/etc/access-control.properties
+      - ../../docker/trino/etc/rules.json
+
+secretGenerator:
+  # Пароли стенда, те же, что в compose. В проде их здесь бы не было:
+  # Secret создавал бы External Secrets Operator из Vault, а в git —
+  # только ссылка на него.
+  - name: dwh-db
+    literals:
+      - POSTGRES_USER=dwh
+      - POSTGRES_PASSWORD=dwh
+      - POSTGRES_DB=dwh
+  - name: s3-config
+    files:
+      - ../../docker/s3/s3.json
+  - name: retail-secrets
+    options:
+      disableNameSuffixHash: true
+    literals:
+      - RETAIL_S3_ACCESS_KEY=retail
+      - RETAIL_S3_SECRET_KEY=retail12345
+      - RETAIL_ORACLE_USER=erp
+      - RETAIL_ORACLE_PASSWORD=erp

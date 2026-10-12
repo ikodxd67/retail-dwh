@@ -1,0 +1,77 @@
+# Trino — без состояния, поэтому обычный Deployment: под можно убить и
+# поднять где угодно, всё нужное лежит в ConfigMap и в самих источниках.
+# Каталоги те же файлы, что в compose: адреса dwh-db, s3, clickhouse,
+# oracle в кластере резолвятся в Service с такими же именами.
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino
+spec:
+  selector:
+    app: trino
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trino
+  template:
+    metadata:
+      labels:
+        app: trino
+    spec:
+      containers:
+        - name: trino
+          image: trinodb/trino:483
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: -Xmx768m   # в compose 1g; в кластере памяти меньше
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 1280Mi
+          volumeMounts:
+            - name: catalog
+              mountPath: /etc/trino/catalog
+              readOnly: true
+            # subPath — чтобы положить два файла рядом с конфигом из образа,
+            # а не заменить весь /etc/trino
+            - name: etc
+              mountPath: /etc/trino/access-control.properties
+              subPath: access-control.properties
+              readOnly: true
+            - name: etc
+              mountPath: /etc/trino/rules.json
+              subPath: rules.json
+              readOnly: true
+      volumes:
+        - name: catalog
+          configMap:
+            name: trino-catalog
+        - name: etc
+          configMap:
+            name: trino-etc

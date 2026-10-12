@@ -144,10 +144,18 @@ docker compose --profile lake up -d         # Kafka, Spark :4040, Trino :8085, C
 docker compose --profile monitoring up -d   # Grafana :3000, Prometheus :9090
 ```
 
+Ядро (DWH, S3, Airflow с KubernetesExecutor, Spark, Trino) можно поднять и
+в локальном кластере Kubernetes (kind + Helm), источники при этом остаются
+в compose — см. [docs/kubernetes.md](docs/kubernetes.md):
+
+```bash
+k8s/scripts/up.sh
+```
+
 Тесты:
 
 ```bash
-pytest -m "not integration"   # 43 теста, секунды
+pytest -m "not integration"   # 52 теста, секунды
 pytest -m integration         # против поднятого стенда
 ```
 
@@ -167,7 +175,8 @@ pytest -m integration         # против поднятого стенда
 | **Мониторинг** | метрики Airflow (StatsD), метрики загрузок и проверок (Pushgateway), алерты о свежести данных, дашборд Grafana |
 | **Governance** | каталог с владельцами и классами PII, **lineage, вычисленный из кода** (sqlglot); тест, что персональные данные не доходят до витрин |
 | **AI-агенты** | MCP-сервер: поиск по каталогу, lineage, состояние пайплайнов, DQ, SQL только на чтение (права в Trino, а не только парсер). Skills для типовых задач: подключить источник, разобрать упавшую проверку |
-| **CI** | GitHub Actions: линтер и юнит-тесты; тесты DAG-ов в том же образе Airflow; интеграционные тесты на живых Oracle и PostgreSQL |
+| **Kubernetes** | kind + Helm: чарт Airflow с **KubernetesExecutor** (задача = под, логи в S3), драйвер Spark Connect и поды executor-ов по требованию, PostgreSQL и S3 как StatefulSet, внешние сервисы через Service без селектора ([docs/kubernetes.md](docs/kubernetes.md)) |
+| **CI** | GitHub Actions: линтер и юнит-тесты; тесты DAG-ов в том же образе Airflow; интеграционные тесты на живых Oracle и PostgreSQL; весь стенд Kubernetes в kind |
 
 ## Замеры
 
@@ -201,14 +210,16 @@ dags/               DAG-и Airflow
 spark/jobs/         Spark: Kafka -> Delta -> сессии
 src/retail_dwh/     код: загрузка, vault, витрины, DQ, публикация, каталог, MCP
 docker/             образы и конфиги сервисов
+k8s/                кластер kind: манифесты, values для Helm-чарта Airflow, скрипты
 .claude/skills/     инструкции для AI-агентов
 ```
 
 ## Чего здесь нет
 
 Здесь нет Greenplum и Vertica: вместо них PostgreSQL и ClickHouse, причины в
-[decisions.md](docs/decisions.md). Нет Kubernetes и Helm: стенд работает на одной
-машине в docker compose. Вместо AWS S3 — SeaweedFS с тем же API (MinIO был, но в 2026 его образы
+[decisions.md](docs/decisions.md). Нет облачного кластера: Kubernetes здесь —
+kind из одного узла на ноутбуке, он показывает развёртывание, но
+отказоустойчивости не добавляет. Вместо AWS S3 — SeaweedFS с тем же API (MinIO был, но в 2026 его образы
 перестали быть доступны — см. [decisions.md](docs/decisions.md)). Нет
 Alertmanager: алерты видны в Prometheus, но никуда не отправляются.
 

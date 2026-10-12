@@ -66,3 +66,36 @@ jobs:
           retail-dwh simulate --orders-per-day 60 --stock-days 3
       - name: Integration tests
         run: pytest -m integration -v
+
+  k8s:
+    # Тот же скрипт, которым стенд поднимается локально: kind, образ,
+    # манифесты, миграции и Airflow через Helm. Потом проверяем, что
+    # все поды готовы и DAG-и разобрались без ошибок.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Manifests render
+        run: kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/base > /dev/null
+      - name: Up
+        run: k8s/scripts/up.sh
+      - name: Everything is ready
+        run: |
+          kubectl -n retail-dwh rollout status deploy/spark-connect --timeout=600s
+          kubectl -n retail-dwh rollout status deploy/trino --timeout=300s
+          kubectl -n retail-dwh get pods
+      - name: DAGs parse in the cluster
+        run: |
+          kubectl -n retail-dwh exec deploy/airflow-scheduler -c scheduler -- \
+            bash -c 'airflow dags list-import-errors -o plain | tee /tmp/err; ! grep -q "\.py" /tmp/err'
+      - name: Spark executors start on demand
+        run: |
+          kubectl -n retail-dwh exec deploy/airflow-scheduler -c scheduler -- python -c "
+          from retail_dwh.lake import spark_session
+          print(spark_session().range(0, 1_000_000, numPartitions=4).selectExpr('sum(id)').collect())"
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl -n retail-dwh get pods -o wide
+          kubectl -n retail-dwh get events --sort-by=.lastTimestamp | tail -40
+          kubectl -n retail-dwh logs deploy/spark-connect --tail=80 || true

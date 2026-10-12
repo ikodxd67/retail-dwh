@@ -1,0 +1,101 @@
+# DWH (PostgreSQL) — StatefulSet, а не Deployment: у пода постоянное имя
+# dwh-db-0 и свой том, который переживает пересоздание пода. Deployment
+# считает поды взаимозаменяемыми, и при обновлении мог бы на время поднять
+# второй под рядом с первым — две базы на одном каталоге данных.
+#
+# Здесь же, как и в compose, лежит база метаданных Airflow.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dwh-db
+spec:
+  # headless: имя dwh-db резолвится сразу в IP пода, без виртуального
+  # адреса. StatefulSet-у такой сервис нужен для DNS-имён вида
+  # dwh-db-0.dwh-db, а клиентам разницы нет.
+  clusterIP: None
+  selector:
+    app: dwh-db
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dwh-db
+spec:
+  serviceName: dwh-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dwh-db
+  template:
+    metadata:
+      labels:
+        app: dwh-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args:
+            - -c
+            - shared_buffers=256MB   # в compose 512MB; в кластере память делим с Airflow и Spark
+            - -c
+            - work_mem=32MB
+            - -c
+            - max_wal_size=2GB
+            - -c
+            - shared_preload_libraries=pg_stat_statements
+          envFrom:
+            - secretRef:
+                name: dwh-db
+          env:
+            # данные в подпапке: в корне тома у некоторых провайдеров лежит
+            # lost+found, и initdb отказывается работать в непустом каталоге
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          # readiness — «можно слать запросы» (иначе под убирают из Service),
+          # liveness — «процесс завис, перезапусти». У liveness запас больше:
+          # перезапуск базы посреди долгого чекпоинта хуже, чем подождать.
+          # timeoutSeconds по умолчанию 1 с: под нагрузкой pg_isready не
+          # успевал, и Kubernetes перезапускал здоровую базу, а за ней
+          # падал Airflow, у которого здесь метаданные.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "dwh", "-d", "dwh"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "dwh", "-d", "dwh"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: dwh-db-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

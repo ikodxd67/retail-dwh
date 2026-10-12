@@ -1,0 +1,245 @@
+# Spark Connect на Kubernetes.
+#
+# Под spark-connect — это драйвер (client mode: драйвер живёт там, где
+# запущен spark-submit, то есть в этом поде). Executor-ы он заказывает
+# у API Kubernetes сам, отдельными подами, и только на время работы:
+# включён dynamic allocation, без нагрузки executor-ов ноль.
+#
+# Airflow ходит сюда так же, как в compose: sc://spark:15002. Код задач
+# не знает, где Spark — в local-режиме или на кластере.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+---
+# Права драйвера: создавать и удалять поды executor-ов и всё, что к ним
+# нужно, — и только в своём namespace (Role, а не ClusterRole).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims]
+    verbs: [create, get, list, watch, delete, deletecollection, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver
+subjects:
+  - kind: ServiceAccount
+    name: spark
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-driver
+---
+# Для клиентов: Spark Connect и UI драйвера
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark
+spec:
+  selector:
+    app: spark-connect
+  ports:
+    - name: connect
+      port: 15002
+    - name: ui
+      port: 4040
+---
+# Для executor-ов: по этому имени они подключаются обратно к драйверу.
+# Headless, потому что ходят прямо на под, а селектор совпадает только
+# с драйвером — у executor-ов своих меток app нет.
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-driver
+spec:
+  clusterIP: None
+  # Headless-сервис отдаёт в DNS только готовые поды, а готовым под станет,
+  # когда драйвер запустится. Без этой строки — замкнутый круг.
+  publishNotReadyAddresses: true
+  selector:
+    app: spark-connect
+  ports:
+    - name: driver
+      port: 7078
+    - name: blockmanager
+      port: 7079
+---
+# Кэш скачанных jar-ов (--packages): без него при каждом рестарте пода
+# драйвер заново тянет ~300 МБ из Maven Central.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spark-ivy
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-connect
+spec:
+  replicas: 1
+  # Recreate: второй драйвер рядом с первым не нужен, а том RWO
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: spark-connect
+  template:
+    metadata:
+      labels:
+        app: spark-connect
+    spec:
+      serviceAccountName: spark
+      securityContext:
+        fsGroup: 185   # пользователь spark в образе apache/spark
+      containers:
+        - name: driver
+          image: apache/spark:3.5.6
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --class
+            - org.apache.spark.sql.connect.service.SparkConnectServer
+            - --name
+            - spark-connect
+            - --master
+            - k8s://https://kubernetes.default.svc:443
+            - --deploy-mode
+            - client
+            - --driver-memory
+            - 1g
+            - --packages
+            - org.apache.spark:spark-connect_2.12:3.5.6,io.delta:delta-spark_2.12:3.3.2,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,org.apache.hadoop:hadoop-aws:3.3.4
+            - --conf
+            - spark.jars.ivy=/opt/ivy
+            # --- Kubernetes
+            - --conf
+            - spark.kubernetes.namespace=retail-dwh
+            - --conf
+            - spark.kubernetes.container.image=apache/spark:3.5.6
+            # драйвер становится владельцем executor-ов: удалили драйвер —
+            # Kubernetes сам удалит и их (ownerReferences)
+            - --conf
+            - spark.kubernetes.driver.pod.name=$(POD_NAME)
+            - --conf
+            - spark.kubernetes.executor.podNamePrefix=spark
+            # host — адрес, который драйвер сообщает executor-ам;
+            # bindAddress — где он сам слушает. Без bindAddress драйвер
+            # слушал бы на host и падал, если имя ещё не резолвится.
+            - --conf
+            - spark.driver.host=spark-driver.retail-dwh.svc
+            - --conf
+            - spark.driver.bindAddress=0.0.0.0
+            - --conf
+            - spark.driver.port=7078
+            - --conf
+            - spark.driver.blockManager.port=7079
+            # --- executor-ы по требованию
+            - --conf
+            - spark.dynamicAllocation.enabled=true
+            # внешнего shuffle-сервиса на Kubernetes нет: executor с
+            # нужными shuffle-файлами просто не отпускают, пока они нужны
+            - --conf
+            - spark.dynamicAllocation.shuffleTracking.enabled=true
+            # ...но и не держим вечно: по умолчанию этот таймаут бесконечный,
+            # и executor после любого groupBy жил бы до рестарта драйвера
+            - --conf
+            - spark.dynamicAllocation.shuffleTracking.timeout=120s
+            - --conf
+            - spark.dynamicAllocation.minExecutors=0
+            - --conf
+            - spark.dynamicAllocation.maxExecutors=2
+            - --conf
+            - spark.dynamicAllocation.executorIdleTimeout=60s
+            # Сервер живёт неделями, а Spark по умолчанию останавливает
+            # приложение после 4 отказов executor-ов за всё время жизни
+            # (выход с кодом 11). Считаем отказы только за последние 10 минут.
+            - --conf
+            - spark.executor.maxNumFailures=10
+            - --conf
+            - spark.executor.failuresValidityInterval=10m
+            - --conf
+            - spark.executor.cores=1
+            - --conf
+            - spark.executor.memory=512m
+            # Лимит пода = память + overhead. С overhead по умолчанию (384m)
+            # executor-ы убивал OOM: Delta, Parquet и клиент Kafka держат
+            # память вне хипа, java дорастала до ~905 МБ при лимите 896 Mi.
+            - --conf
+            - spark.executor.memoryOverhead=512m
+            - --conf
+            - spark.kubernetes.executor.request.cores=250m
+            # --- Delta и S3, как в compose
+            - --conf
+            - spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+            - --conf
+            - spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+            - --conf
+            - spark.hadoop.fs.s3a.endpoint=http://s3:9000
+            - --conf
+            - spark.hadoop.fs.s3a.access.key=$(RETAIL_S3_ACCESS_KEY)
+            - --conf
+            - spark.hadoop.fs.s3a.secret.key=$(RETAIL_S3_SECRET_KEY)
+            - --conf
+            - spark.hadoop.fs.s3a.path.style.access=true
+            - --conf
+            - spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+            - --conf
+            - spark.sql.shuffle.partitions=8
+          env:
+            # $(ИМЯ) в args Kubernetes подставляет из env контейнера
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HADOOP_USER_NAME
+              value: spark
+          envFrom:
+            - secretRef:
+                name: retail-secrets
+          ports:
+            - name: connect
+              containerPort: 15002
+            - name: ui
+              containerPort: 4040
+            - name: driver
+              containerPort: 7078
+            - name: blockmanager
+              containerPort: 7079
+          # первый старт долгий: драйвер качает jar-ы, отсюда startupProbe
+          # с большим запасом — пока она не прошла, liveness не проверяется
+          startupProbe:
+            tcpSocket:
+              port: connect
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: connect
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: connect
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1536Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: ivy
+              mountPath: /opt/ivy
+      volumes:
+        - name: ivy
+          persistentVolumeClaim:
+            claimName: spark-ivy
